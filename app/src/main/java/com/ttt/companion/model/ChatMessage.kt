@@ -1,0 +1,6 @@
+package com.ttt.companion.model
+
+data class ChatMessage(
+    val role: String,    // "user" | "assistant" | "system"
+    val content: String
+)
