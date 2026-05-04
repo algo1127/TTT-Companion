@@ -56,6 +56,8 @@ class ModelDownloader(private val context: Context) {
                             val pct = if (totalBytes > 0) ((bytesWritten * 100) / totalBytes).toInt() else 0
                             withContext(Dispatchers.Main) {
                                 onProgress(DownloadState.Downloading(
+                                    phase       = SetupPhase.LLM,
+                                    label       = ModelConfig.MODEL_FILENAME,
                                     progressPct = pct,
                                     mbReceived  = bytesWritten / 1_048_576f,
                                     mbTotal     = totalBytes   / 1_048_576f

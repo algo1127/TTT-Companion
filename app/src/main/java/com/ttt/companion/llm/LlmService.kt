@@ -17,7 +17,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.nehuatl.llamacpp.LlamaHelper
 import java.io.File
 
-class LlmService(private val context: Context) {
+class LlmService(context: Context) {
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -51,6 +51,13 @@ class LlmService(private val context: Context) {
                 Log.e("LlmService", "Model file does not exist at ${profile.modelPath}")
                 return LoadState.Error("Model file not found")
             }
+
+            // A 2B model Q4_K_M should be ~1.5GB. If it's less than 100MB, it's definitely corrupted/LFS pointer.
+            if (modelFile.length() < 100_000_000L) {
+                Log.e("LlmService", "Model file is suspiciously small (${modelFile.length()} bytes). Deleting.")
+                modelFile.delete()
+                return LoadState.Error("Model file corrupted (too small)")
+            }
             
             // Critical Fix: Explicitly ensure the URI is exactly what the library expects
             // "file://" + path is the standard way to pass local file URIs to ContentResolver
@@ -69,6 +76,10 @@ class LlmService(private val context: Context) {
                         }
                         is LlamaHelper.LLMEvent.Error -> {
                             Log.e("LlmService", "Model error event: ${event.message}")
+                            if (event.message.contains("GGUF", ignoreCase = true)) {
+                                Log.w("LlmService", "GGUF format error. Deleting model file.")
+                                File(profile.modelPath).delete()
+                            }
                             deferred.complete(LoadState.Error(event.message))
                         }
                         else -> {}
@@ -118,7 +129,7 @@ class LlmService(private val context: Context) {
             append(systemPrompt.trim())
             append("\n<|im_end|>\n")
 
-            history.forEach { msg ->
+            history.takeLast(10).forEach { msg ->
                 val role = if (msg.role == "user") "user" else "assistant"
                 append("<|im_start|>$role\n")
                 append(msg.content.trim())
@@ -153,7 +164,9 @@ class LlmService(private val context: Context) {
             throw e
         }
 
-        val finalResponse = result.toString().trim()
+        val finalResponse = result.toString()
+            .replace(Regex("<think>.*?</think>", RegexOption.DOT_MATCHES_ALL), "")
+            .trim()
         Log.i("LlmService", "Prediction complete. Response: $finalResponse")
         return finalResponse
     }

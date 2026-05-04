@@ -1,32 +1,49 @@
 package com.ttt.companion.ui
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.ttt.companion.audio.AudioConfig
+import com.ttt.companion.audio.AudioDownloadManager
+import com.ttt.companion.audio.SttService
+import com.ttt.companion.audio.TtsService
+import com.ttt.companion.audio.VoiceRecorder
 import com.ttt.companion.llm.DownloadState
 import com.ttt.companion.llm.LlmService
 import com.ttt.companion.llm.ModelDownloader
+import com.ttt.companion.llm.SetupPhase
 import com.ttt.companion.model.ChatMessage
 import com.ttt.companion.model.defaultCharacter
-import org.nehuatl.llamacpp.LlamaHelper
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.io.File
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
 
-    private val downloader = ModelDownloader(app)
-    private val llm        = LlmService(app)
-    val character          = defaultCharacter(app.filesDir)
+    private val TAG = "MainViewModel"
 
-    // ── Download state ───────────────────────────────────────
+    private val downloader    = ModelDownloader(app)
+    private val audioDl       = AudioDownloadManager(app)
+    private val llm           = LlmService(app)
+    private val sttService    = SttService(app)
+    private val ttsService    = TtsService(app)
+    private val voiceRecorder = VoiceRecorder(app)
+
+    val character = defaultCharacter(app.filesDir)
+
+    // ── Setup / download state ────────────────────────────────────────────────
+
     private val _downloadState = MutableStateFlow<DownloadState>(
-        if (downloader.isModelReady()) DownloadState.Done else DownloadState.Idle
+        if (allModelsReady()) DownloadState.Done else DownloadState.Idle
     )
     val downloadState = _downloadState.asStateFlow()
 
-    // ── Chat state ───────────────────────────────────────────
-    private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
+    // ── LLM state ─────────────────────────────────────────────────────────────
+
+    private val _messages  = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages = _messages.asStateFlow()
 
     private val _isLoading = MutableStateFlow(false)
@@ -35,58 +52,204 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _modelState = MutableStateFlow<LlmService.LoadState>(LlmService.LoadState.Idle)
     val modelState = _modelState.asStateFlow()
 
-    init {
-        // Already downloaded on a previous launch — load right away
-        if (downloader.isModelReady()) loadModel()
+    // ── Audio state ───────────────────────────────────────────────────────────
+
+    sealed class AudioState {
+        data object Idle         : AudioState()
+        data object Recording    : AudioState()
+        data object Transcribing : AudioState()
+        data object Speaking     : AudioState()
+        data class  Error(val msg: String) : AudioState()
     }
 
-    /** Called by SetupScreen's Download button */
+    private val _audioState = MutableStateFlow<AudioState>(AudioState.Idle)
+    val audioState = _audioState.asStateFlow()
+
+    private val _sttReady = MutableStateFlow(false)
+    val sttReady = _sttReady.asStateFlow()
+
+    private val _ttsReady = MutableStateFlow(false)
+    val ttsReady = _ttsReady.asStateFlow()
+
+    val hasMicPermission: Boolean
+        get() = voiceRecorder.hasMicPermission()
+
+    // ── Init ──────────────────────────────────────────────────────────────────
+
+    init {
+        if (allModelsReady()) {
+            loadAllModels()
+        }
+    }
+
+    private fun allModelsReady(): Boolean =
+        downloader.isModelReady() &&
+                audioDl.areFilesReady(AudioConfig.STT_DIR, AudioConfig.STT_FILES) &&
+                audioDl.areFilesReady(AudioConfig.TTS_DIR, AudioConfig.TTS_FILES)
+
+    // ── Download sequence: LLM → STT → TTS ───────────────────────────────────
+
     fun startDownload() {
         viewModelScope.launch {
-            downloader.download { state ->
-                _downloadState.value = state
-                if (state == DownloadState.Done || state == DownloadState.AlreadyHave) {
-                    loadModel()
+            // Phase 1 — LLM
+            if (!downloader.isModelReady()) {
+                downloader.download { state -> _downloadState.value = state }
+                if (_downloadState.value is DownloadState.Failed) return@launch
+            }
+
+            // Phase 2 — STT
+            if (!audioDl.areFilesReady(AudioConfig.STT_DIR, AudioConfig.STT_FILES)) {
+                try {
+                    audioDl.downloadAll(
+                        subDir     = AudioConfig.STT_DIR,
+                        files      = AudioConfig.STT_FILES,
+                        phaseLabel = SetupPhase.STT.displayName
+                    ) { label, pct, mbR, mbT ->
+                        _downloadState.value = DownloadState.Downloading(
+                            phase = SetupPhase.STT, label = label,
+                            progressPct = pct, mbReceived = mbR, mbTotal = mbT
+                        )
+                    }
+                } catch (e: Exception) {
+                    _downloadState.value = DownloadState.Failed("STT: ${e.message}")
+                    return@launch
                 }
+            }
+
+            // Phase 3 — TTS
+            if (!audioDl.areFilesReady(AudioConfig.TTS_DIR, AudioConfig.TTS_FILES)) {
+                try {
+                    audioDl.downloadAll(
+                        subDir     = AudioConfig.TTS_DIR,
+                        files      = AudioConfig.TTS_FILES,
+                        phaseLabel = SetupPhase.TTS.displayName
+                    ) { label, pct, mbR, mbT ->
+                        _downloadState.value = DownloadState.Downloading(
+                            phase = SetupPhase.TTS, label = label,
+                            progressPct = pct, mbReceived = mbR, mbTotal = mbT
+                        )
+                    }
+                } catch (e: Exception) {
+                    _downloadState.value = DownloadState.Failed("TTS: ${e.message}")
+                    return@launch
+                }
+            }
+
+            copyVoiceSampleIfNeeded()
+            _downloadState.value = DownloadState.Done
+            loadAllModels()
+        }
+    }
+
+    // ── Model loading ─────────────────────────────────────────────────────────
+
+    private fun loadAllModels() {
+        viewModelScope.launch {
+            copyVoiceSampleIfNeeded()
+
+            // LLM (blocking — must be first to avoid OOM on weaker devices)
+            _modelState.value = LlmService.LoadState.Loading
+            val llmResult = llm.loadModel(character)
+            _modelState.value = llmResult
+            if (llmResult is LlmService.LoadState.Error) return@launch
+
+            // STT — Load sequentially to isolate issues and reduce peak RAM
+            Log.d(TAG, "Initializing STT...")
+            val sttResult = sttService.init()
+            _sttReady.value = sttResult is SttService.LoadState.Ready
+            if (sttResult is SttService.LoadState.Error) {
+                Log.e(TAG, "STT Init Error: ${sttResult.message}")
+            }
+
+            // TTS — Heavy; load last
+            Log.d(TAG, "Initializing TTS...")
+            val ttsResult = ttsService.init(character.voiceSamplePath)
+            _ttsReady.value = ttsResult is TtsService.LoadState.Ready
+            if (ttsResult is TtsService.LoadState.Error) {
+                Log.e(TAG, "TTS Init Error: ${ttsResult.message}")
             }
         }
     }
 
-    private fun loadModel() {
-        viewModelScope.launch {
-            _modelState.value = LlmService.LoadState.Loading
-            _modelState.value = llm.loadModel(character)
+    private fun copyVoiceSampleIfNeeded() {
+        val dest = File(character.voiceSamplePath)
+        if (dest.exists()) return
+        dest.parentFile?.mkdirs()
+        try {
+            getApplication<Application>().assets
+                .open(AudioConfig.VOICE_SAMPLE_ASSET)
+                .use { i -> dest.outputStream().use { i.copyTo(it) } }
+            Log.i(TAG, "Voice sample copied to ${dest.absolutePath}")
+        } catch (e: Exception) {
+            Log.w(TAG, "Voice sample not found in assets (using default voice): ${e.message}")
         }
     }
 
-    fun sendMessage(userText: String) {
-        if (userText.isBlank()) return
-        if (_isLoading.value) return
+    // ── Chat ──────────────────────────────────────────────────────────────────
 
-        val userMsg = ChatMessage(role = "user", content = userText.trim())
+    fun sendMessage(userText: String) {
+        if (userText.isBlank() || _isLoading.value) return
+        val userMsg        = ChatMessage(role = "user", content = userText.trim())
         val updatedHistory = _messages.value + userMsg
-        _messages.value = updatedHistory
-        _isLoading.value = true
+        _messages.value    = updatedHistory
+        _isLoading.value   = true
 
         viewModelScope.launch {
             try {
                 val response = llm.chat(
-                    history = updatedHistory,
+                    history      = updatedHistory,
                     systemPrompt = character.systemPrompt
                 )
                 val assistantMsg = ChatMessage(role = "assistant", content = response)
-                _messages.value = updatedHistory + assistantMsg
+                _messages.value  = updatedHistory + assistantMsg
+
+                // Speak via TTS if ready
+                if (_ttsReady.value) {
+                    _audioState.value = AudioState.Speaking
+                    ttsService.speak(response)
+                    _audioState.value = AudioState.Idle
+                }
             } catch (e: Exception) {
-                val errMsg = ChatMessage(role = "assistant", content = "[Error: ${e.message}]")
-                _messages.value = updatedHistory + errMsg
+                _messages.value = updatedHistory + ChatMessage(
+                    role = "assistant", content = "[Error: ${e.message}]"
+                )
             } finally {
                 _isLoading.value = false
             }
         }
     }
 
+    // ── Voice input ───────────────────────────────────────────────────────────
+
+    /** Called on mic button PRESS. Suspends until stopRecording() is called. */
+    fun startRecording() {
+        if (_audioState.value != AudioState.Idle) return
+        _audioState.value = AudioState.Recording
+        viewModelScope.launch {
+            val wavFile = voiceRecorder.startRecording()
+            if (wavFile == null) {
+                _audioState.value = AudioState.Error("Microphone permission required")
+                return@launch
+            }
+            _audioState.value = AudioState.Transcribing
+            val (samples, sr) = voiceRecorder.readWavAsFloat(wavFile)
+            val text          = sttService.transcribe(samples, sr)
+            _audioState.value = AudioState.Idle
+            if (text.isNotBlank()) sendMessage(text)
+        }
+    }
+
+    /** Called on mic button RELEASE. */
+    fun stopRecording() {
+        voiceRecorder.stopFlag = true
+    }
+
+    // ── Cleanup ───────────────────────────────────────────────────────────────
+
     override fun onCleared() {
         llm.unload()
+        sttService.release()
+        ttsService.release()
         super.onCleared()
     }
 }
