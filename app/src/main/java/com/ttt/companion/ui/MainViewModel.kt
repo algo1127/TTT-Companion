@@ -31,8 +31,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val sttService    = SttService(app)
     private val ttsService    = TtsService(app)
     private val voiceRecorder = VoiceRecorder(app)
+    private val memoryManager = com.ttt.companion.memory.MemoryManager(app)
+    private val toolRouter    = com.ttt.companion.tools.ToolRouter(app)
 
     val character = defaultCharacter(app.filesDir)
+
+    // Build the full system prompt. Start with tools immediately so they are always available.
+    private var fullSystemPrompt: String = character.systemPrompt +
+            "\n\n" + com.ttt.companion.tools.ToolDefinitions.SYSTEM_PROMPT_ADDITION
 
     // ── Setup / download state ────────────────────────────────────────────────
 
@@ -79,6 +85,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     init {
         if (allModelsReady()) {
             loadAllModels()
+        }
+
+        // Load memory block asynchronously and append to system prompt
+        viewModelScope.launch {
+            val memoryBlock = memoryManager.buildMemoryBlock(character.id)
+            fullSystemPrompt = character.systemPrompt +
+                "\n\n" + com.ttt.companion.tools.ToolDefinitions.SYSTEM_PROMPT_ADDITION +
+                "\n\n" + memoryBlock
         }
     }
 
@@ -196,10 +210,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
         viewModelScope.launch {
             try {
-                val response = llm.chat(
-                    history      = updatedHistory,
-                    systemPrompt = character.systemPrompt
+                val rawResponse = llm.chat(
+                    history = updatedHistory,
+                    systemPrompt = fullSystemPrompt
                 )
+
+                // Check for a tool call
+                val parseResult = com.ttt.companion.tools.ToolCallParser.parse(rawResponse)
+                parseResult.toolCall?.let { call ->
+                    toolRouter.execute(call) // fire and forget
+                }
+
+                val response = parseResult.cleanedResponse
                 val assistantMsg = ChatMessage(role = "assistant", content = response)
                 _messages.value  = updatedHistory + assistantMsg
 
@@ -245,6 +267,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ── Cleanup ───────────────────────────────────────────────────────────────
+
+    fun endSession() {
+        viewModelScope.launch {
+            memoryManager.summarizeAndSave(character.id, _messages.value, llm)
+        }
+    }
 
     override fun onCleared() {
         llm.unload()

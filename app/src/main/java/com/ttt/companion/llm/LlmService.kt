@@ -44,7 +44,7 @@ class LlmService(context: Context) {
             Log.d("LlmService", "Model already loaded at this path.")
             return LoadState.Ready
         }
-        
+
         return try {
             val modelFile = File(profile.modelPath)
             if (!modelFile.exists()) {
@@ -58,7 +58,7 @@ class LlmService(context: Context) {
                 modelFile.delete()
                 return LoadState.Error("Model file corrupted (too small)")
             }
-            
+
             // Critical Fix: Explicitly ensure the URI is exactly what the library expects
             // "file://" + path is the standard way to pass local file URIs to ContentResolver
             val modelUri = "file://${modelFile.absolutePath}"

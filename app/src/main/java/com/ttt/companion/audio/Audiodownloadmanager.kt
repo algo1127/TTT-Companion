@@ -108,25 +108,39 @@ class AudioDownloadManager(private val context: Context) {
                 val contentLen  = finalConn.contentLengthLong
                 val totalBytes  = if (contentLen > 0) contentLen + existing else -1L
                 var bytesWritten = existing
+                var lastUpdateMillis = 0L
 
                 finalConn.inputStream.use { input ->
                     // Append to temp file if resuming, otherwise overwrite
                     val fos = FileOutputStream(temp, existing > 0)
                     fos.use { output ->
-                        val buf = ByteArray(32_768)
+                        val buf = ByteArray(65536) // 64KB buffer
                         var read: Int
                         while (input.read(buf).also { read = it } != -1) {
                             output.write(buf, 0, read)
                             bytesWritten += read
-                            val pct = if (totalBytes > 0)
-                                ((bytesWritten * 100L) / totalBytes).toInt().coerceIn(0, 99)
-                            else
-                                ((idx * 100) / files.size)
-                            val label = "$phaseLabel — ${f.filename} (${idx + 1}/${files.size})"
-                            onProgress(label, pct, bytesWritten / 1_048_576f, totalBytes / 1_048_576f)
+
+                            val currentTime = System.currentTimeMillis()
+                            if (currentTime - lastUpdateMillis > 200L) {
+                                lastUpdateMillis = currentTime
+                                val pct = if (totalBytes > 0)
+                                    ((bytesWritten * 100L) / totalBytes).toInt().coerceIn(0, 99)
+                                else
+                                    ((idx * 100) / files.size)
+                                val label = "$phaseLabel — ${f.filename} (${idx + 1}/${files.size})"
+                                onProgress(label, pct, bytesWritten / 1_048_576f, totalBytes / 1_048_576f)
+                            }
                         }
                     }
                 }
+
+                // Final progress update for this file
+                val finalPct = if (totalBytes > 0)
+                    ((bytesWritten * 100L) / totalBytes).toInt().coerceIn(0, 100)
+                else
+                    100
+                val finalLabel = "$phaseLabel — ${f.filename} (${idx + 1}/${files.size})"
+                onProgress(finalLabel, finalPct, bytesWritten / 1_048_576f, totalBytes / 1_048_576f)
 
                 temp.renameTo(target)
                 Log.i("AudioDL", "[$phaseLabel] ${f.filename} → saved (${target.length()} bytes)")

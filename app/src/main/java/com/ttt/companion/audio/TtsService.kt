@@ -70,9 +70,9 @@ class TtsService(private val context: Context) {
                         tokens = tokensFile.absolutePath,
                         dataDir = dataDir.absolutePath
                     ),
-                    numThreads = 4,
+                    numThreads = 6,
                     debug      = false,
-                    provider   = "cpu"
+                    provider   = "gpu"
                 ),
                 maxNumSentences = 1
             )

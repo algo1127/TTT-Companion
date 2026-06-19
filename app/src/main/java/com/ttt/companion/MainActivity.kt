@@ -8,6 +8,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ttt.companion.llm.DownloadState
 import com.ttt.companion.ui.MainViewModel
@@ -33,6 +35,12 @@ class MainActivity : ComponentActivity() {
         if (!viewModel.hasMicPermission) {
             micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
+
+        lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onStop(owner: LifecycleOwner) {
+                viewModel.endSession()
+            }
+        })
 
         setContent {
             MaterialTheme {
