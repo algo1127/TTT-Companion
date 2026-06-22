@@ -1,29 +1,53 @@
 package com.ttt.companion
 
+import android.Manifest
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ttt.companion.llm.DownloadState
 import com.ttt.companion.ui.MainViewModel
 import com.ttt.companion.ui.SetupScreen
 import com.ttt.companion.ui.TestScreen
+import com.ttt.companion.ui.VrmScreen
 
 class MainActivity : ComponentActivity() {
 
     private val viewModel: MainViewModel by viewModels()
 
+    // ── Microphone permission launcher ────────────────────────────────────────
+    private val micPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        // MainViewModel reads hasMicPermission live via ContextCompat — no extra action needed.
+        // The mic button in TestScreen will enable itself on next recomposition.
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Request mic permission early so it's ready by the time the chat screen appears.
+        if (!viewModel.hasMicPermission) {
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+
+        lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onStop(owner: LifecycleOwner) {
+                viewModel.endSession()
+            }
+        })
+
         setContent {
             MaterialTheme {
-                // Route: show setup until model is downloaded, then show chat
                 val downloadState by viewModel.downloadState.collectAsStateWithLifecycle()
                 if (downloadState == DownloadState.Done || downloadState == DownloadState.AlreadyHave) {
-                    TestScreen(viewModel)
+                    VrmScreen(viewModel)
                 } else {
                     SetupScreen(viewModel)
                 }

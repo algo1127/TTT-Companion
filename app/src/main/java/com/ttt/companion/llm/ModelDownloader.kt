@@ -45,22 +45,41 @@ class ModelDownloader(private val context: Context) {
 
                 val totalBytes  = conn.contentLengthLong + existingBytes
                 var bytesWritten = existingBytes
+                var lastUpdateMillis = 0L
 
                 conn.inputStream.use { input ->
                     tempFile.outputStream().use { output ->
-                        val buffer = ByteArray(8192)
+                        val buffer = ByteArray(65536) // 64KB buffer
                         var read: Int
                         while (input.read(buffer).also { read = it } != -1) {
                             output.write(buffer, 0, read)
                             bytesWritten += read
-                            val pct = if (totalBytes > 0) ((bytesWritten * 100) / totalBytes).toInt() else 0
-                            withContext(Dispatchers.Main) {
-                                onProgress(DownloadState.Downloading(
-                                    progressPct = pct,
-                                    mbReceived  = bytesWritten / 1_048_576f,
-                                    mbTotal     = totalBytes   / 1_048_576f
-                                ))
+
+                            val currentTime = System.currentTimeMillis()
+                            if (currentTime - lastUpdateMillis > 200L) {
+                                lastUpdateMillis = currentTime
+                                val pct = if (totalBytes > 0) ((bytesWritten * 100) / totalBytes).toInt() else 0
+                                withContext(Dispatchers.Main) {
+                                    onProgress(DownloadState.Downloading(
+                                        phase       = SetupPhase.LLM,
+                                        label       = ModelConfig.MODEL_FILENAME,
+                                        progressPct = pct,
+                                        mbReceived  = bytesWritten / 1_048_576f,
+                                        mbTotal     = totalBytes   / 1_048_576f
+                                    ))
+                                }
                             }
+                        }
+                        // Final progress update for this file
+                        val finalPct = if (totalBytes > 0) ((bytesWritten * 100) / totalBytes).toInt() else 100
+                        withContext(Dispatchers.Main) {
+                            onProgress(DownloadState.Downloading(
+                                phase       = SetupPhase.LLM,
+                                label       = ModelConfig.MODEL_FILENAME,
+                                progressPct = finalPct,
+                                mbReceived  = bytesWritten / 1_048_576f,
+                                mbTotal     = totalBytes   / 1_048_576f
+                            ))
                         }
                     }
                 }
