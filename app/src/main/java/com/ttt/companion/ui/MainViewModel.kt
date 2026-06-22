@@ -17,9 +17,11 @@ import com.ttt.companion.model.ChatMessage
 import com.ttt.companion.model.defaultCharacter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
+import com.ttt.companion.vrm.VrmAssetHelper
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -34,9 +36,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val memoryManager = com.ttt.companion.memory.MemoryManager(app)
     private val toolRouter    = com.ttt.companion.tools.ToolRouter(app)
 
+    private val _vrmUrl = MutableStateFlow<String?>(null)
+    val vrmUrl = _vrmUrl.asStateFlow()
+
+    private val _vrmActive = MutableStateFlow(true)
+    val vrmActive = _vrmActive.asStateFlow()
+
+    private val _vrmLoading = MutableStateFlow(true)
+    val vrmLoading = _vrmLoading.asStateFlow()
+
+    private val _isSpeaking = MutableStateFlow(false)
+    val isSpeaking = _isSpeaking.asStateFlow()
+
     val character = defaultCharacter(app.filesDir)
 
-    // Build the full system prompt. Start with tools immediately so they are always available.
+    // Build the full system prompt.
     private var fullSystemPrompt: String = character.systemPrompt +
             "\n\n" + com.ttt.companion.tools.ToolDefinitions.SYSTEM_PROMPT_ADDITION
 
@@ -83,11 +97,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // ── Init ──────────────────────────────────────────────────────────────────
 
     init {
-        if (allModelsReady()) {
-            loadAllModels()
-        }
-
-        // Load memory block asynchronously and append to system prompt
+        // 3. Load memory asynchronously
         viewModelScope.launch {
             val memoryBlock = memoryManager.buildMemoryBlock(character.id)
             fullSystemPrompt = character.systemPrompt +
@@ -96,59 +106,46 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun startVrm() {
+        if (!vrmActive.value || _vrmUrl.value != null) return
+        viewModelScope.launch {
+            Log.d(TAG, "Starting VRM load sequence...")
+            val url = VrmAssetHelper.ensureVrm(getApplication(), character.id)
+            _vrmUrl.value = url
+        }
+    }
+
     private fun allModelsReady(): Boolean =
         downloader.isModelReady() &&
                 audioDl.areFilesReady(AudioConfig.STT_DIR, AudioConfig.STT_FILES) &&
                 audioDl.areFilesReady(AudioConfig.TTS_DIR, AudioConfig.TTS_FILES)
 
-    // ── Download sequence: LLM → STT → TTS ───────────────────────────────────
+    // ── Download sequence ────────────────────────────────────────────────────
 
     fun startDownload() {
         viewModelScope.launch {
-            // Phase 1 — LLM
             if (!downloader.isModelReady()) {
                 downloader.download { state -> _downloadState.value = state }
                 if (_downloadState.value is DownloadState.Failed) return@launch
             }
-
-            // Phase 2 — STT
             if (!audioDl.areFilesReady(AudioConfig.STT_DIR, AudioConfig.STT_FILES)) {
                 try {
-                    audioDl.downloadAll(
-                        subDir     = AudioConfig.STT_DIR,
-                        files      = AudioConfig.STT_FILES,
-                        phaseLabel = SetupPhase.STT.displayName
-                    ) { label, pct, mbR, mbT ->
-                        _downloadState.value = DownloadState.Downloading(
-                            phase = SetupPhase.STT, label = label,
-                            progressPct = pct, mbReceived = mbR, mbTotal = mbT
-                        )
+                    audioDl.downloadAll(AudioConfig.STT_DIR, AudioConfig.STT_FILES, SetupPhase.STT.displayName) { l, p, r, t ->
+                        _downloadState.value = DownloadState.Downloading(SetupPhase.STT, l, p, r, t)
                     }
                 } catch (e: Exception) {
-                    _downloadState.value = DownloadState.Failed("STT: ${e.message}")
-                    return@launch
+                    _downloadState.value = DownloadState.Failed("STT: ${e.message}"); return@launch
                 }
             }
-
-            // Phase 3 — TTS
             if (!audioDl.areFilesReady(AudioConfig.TTS_DIR, AudioConfig.TTS_FILES)) {
                 try {
-                    audioDl.downloadAll(
-                        subDir     = AudioConfig.TTS_DIR,
-                        files      = AudioConfig.TTS_FILES,
-                        phaseLabel = SetupPhase.TTS.displayName
-                    ) { label, pct, mbR, mbT ->
-                        _downloadState.value = DownloadState.Downloading(
-                            phase = SetupPhase.TTS, label = label,
-                            progressPct = pct, mbReceived = mbR, mbTotal = mbT
-                        )
+                    audioDl.downloadAll(AudioConfig.TTS_DIR, AudioConfig.TTS_FILES, SetupPhase.TTS.displayName) { l, p, r, t ->
+                        _downloadState.value = DownloadState.Downloading(SetupPhase.TTS, l, p, r, t)
                     }
                 } catch (e: Exception) {
-                    _downloadState.value = DownloadState.Failed("TTS: ${e.message}")
-                    return@launch
+                    _downloadState.value = DownloadState.Failed("TTS: ${e.message}"); return@launch
                 }
             }
-
             copyVoiceSampleIfNeeded()
             _downloadState.value = DownloadState.Done
             loadAllModels()
@@ -158,44 +155,37 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // ── Model loading ─────────────────────────────────────────────────────────
 
     private fun loadAllModels() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             copyVoiceSampleIfNeeded()
-
-            // LLM (blocking — must be first to avoid OOM on weaker devices)
             _modelState.value = LlmService.LoadState.Loading
             val llmResult = llm.loadModel(character)
-            _modelState.value = llmResult
+            withContext(Dispatchers.Main) { _modelState.value = llmResult }
             if (llmResult is LlmService.LoadState.Error) return@launch
 
-            // STT — Load sequentially to isolate issues and reduce peak RAM
+            kotlinx.coroutines.delay(500)
             Log.d(TAG, "Initializing STT...")
             val sttResult = sttService.init()
-            _sttReady.value = sttResult is SttService.LoadState.Ready
-            if (sttResult is SttService.LoadState.Error) {
-                Log.e(TAG, "STT Init Error: ${sttResult.message}")
-            }
+            withContext(Dispatchers.Main) { _sttReady.value = sttResult is SttService.LoadState.Ready }
 
-            // TTS — Heavy; load last
             Log.d(TAG, "Initializing TTS...")
             val ttsResult = ttsService.init(character.voiceSamplePath)
-            _ttsReady.value = ttsResult is TtsService.LoadState.Ready
-            if (ttsResult is TtsService.LoadState.Error) {
-                Log.e(TAG, "TTS Init Error: ${ttsResult.message}")
-            }
+            withContext(Dispatchers.Main) { _ttsReady.value = ttsResult is TtsService.LoadState.Ready }
         }
     }
 
     private fun copyVoiceSampleIfNeeded() {
+        val assetPath = AudioConfig.VOICE_SAMPLE_ASSET
         val dest = File(character.voiceSamplePath)
-        if (dest.exists()) return
+
+        // FOR NOW: Always refresh from assets on launch
+        Log.i(TAG, "Refreshing voice sample from APK...")
         dest.parentFile?.mkdirs()
         try {
             getApplication<Application>().assets
-                .open(AudioConfig.VOICE_SAMPLE_ASSET)
+                .open(assetPath)
                 .use { i -> dest.outputStream().use { i.copyTo(it) } }
-            Log.i(TAG, "Voice sample copied to ${dest.absolutePath}")
         } catch (e: Exception) {
-            Log.w(TAG, "Voice sample not found in assets (using default voice): ${e.message}")
+            Log.w(TAG, "Failed to refresh voice sample: ${e.message}")
         }
     }
 
@@ -203,38 +193,34 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun sendMessage(userText: String) {
         if (userText.isBlank() || _isLoading.value) return
-        val userMsg        = ChatMessage(role = "user", content = userText.trim())
+        val userMsg = ChatMessage(role = "user", content = userText.trim())
         val updatedHistory = _messages.value + userMsg
-        _messages.value    = updatedHistory
-        _isLoading.value   = true
+        _messages.value = updatedHistory
+        _isLoading.value = true
 
         viewModelScope.launch {
             try {
-                val rawResponse = llm.chat(
-                    history = updatedHistory,
-                    systemPrompt = fullSystemPrompt
-                )
-
-                // Check for a tool call
+                val rawResponse = llm.chat(updatedHistory, fullSystemPrompt)
                 val parseResult = com.ttt.companion.tools.ToolCallParser.parse(rawResponse)
-                parseResult.toolCall?.let { call ->
-                    toolRouter.execute(call) // fire and forget
-                }
+                parseResult.toolCall?.let { toolRouter.execute(it) }
 
                 val response = parseResult.cleanedResponse
                 val assistantMsg = ChatMessage(role = "assistant", content = response)
-                _messages.value  = updatedHistory + assistantMsg
+                _messages.value = updatedHistory + assistantMsg
 
-                // Speak via TTS if ready
                 if (_ttsReady.value) {
                     _audioState.value = AudioState.Speaking
-                    ttsService.speak(response)
-                    _audioState.value = AudioState.Idle
+                    _isSpeaking.value = true
+                    startLipSync()
+                    try {
+                        ttsService.speak(response)
+                    } finally {
+                        _isSpeaking.value = false
+                        _audioState.value = AudioState.Idle
+                    }
                 }
             } catch (e: Exception) {
-                _messages.value = updatedHistory + ChatMessage(
-                    role = "assistant", content = "[Error: ${e.message}]"
-                )
+                _messages.value = updatedHistory + ChatMessage(role = "assistant", content = "[Error: ${e.message}]")
             } finally {
                 _isLoading.value = false
             }
@@ -243,30 +229,75 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     // ── Voice input ───────────────────────────────────────────────────────────
 
-    /** Called on mic button PRESS. Suspends until stopRecording() is called. */
     fun startRecording() {
         if (_audioState.value != AudioState.Idle) return
         _audioState.value = AudioState.Recording
+        _isSpeaking.value = true
         viewModelScope.launch {
             val wavFile = voiceRecorder.startRecording()
             if (wavFile == null) {
-                _audioState.value = AudioState.Error("Microphone permission required")
-                return@launch
+                _audioState.value = AudioState.Error("Mic permission required")
+                _isSpeaking.value = false; return@launch
             }
             _audioState.value = AudioState.Transcribing
             val (samples, sr) = voiceRecorder.readWavAsFloat(wavFile)
-            val text          = sttService.transcribe(samples, sr)
+            val text = sttService.transcribe(samples, sr)
             _audioState.value = AudioState.Idle
+            _isSpeaking.value = false
             if (text.isNotBlank()) sendMessage(text)
         }
     }
 
-    /** Called on mic button RELEASE. */
-    fun stopRecording() {
-        voiceRecorder.stopFlag = true
+    fun stopRecording() { voiceRecorder.stopFlag = true }
+
+    fun toggleMic() {
+        if (_isSpeaking.value || _audioState.value == AudioState.Recording) {
+            stopLipSync(); stopRecording()
+        } else {
+            startRecording()
+        }
     }
 
-    // ── Cleanup ───────────────────────────────────────────────────────────────
+    // ── VRM / Lip sync ────────────────────────────────────────────────────────
+
+    private var vrmLoadedOnce = false
+
+    fun skipVrm() {
+        if (vrmLoadedOnce) return
+        Log.i(TAG, "⏩ Skipping VRM loading, starting LLM immediately")
+        vrmLoadedOnce = true
+        _vrmActive.value = false
+        _vrmUrl.value = null
+        _vrmLoading.value = false
+        if (allModelsReady()) {
+            loadAllModels()
+        }
+    }
+
+    fun onVrmLoaded() {
+        if (vrmLoadedOnce) return
+        vrmLoadedOnce = true
+        _vrmLoading.value = false
+        Log.i(TAG, "✅ VRM loaded successfully")
+        // Ahora que la GPU está estable y el 3D se ve, cargamos la IA de forma segura
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(2000) // Aumentado a 2s para evitar caídas de frames iniciales
+            if (allModelsReady()) {
+                loadAllModels()
+            }
+        }
+    }
+    fun onVrmError(msg: String) {
+        Log.e(TAG, "❌ VRM error: $msg")
+        // If VRM fails, we still want the AI to work
+        skipVrm()
+    }
+
+    fun startLipSync() {
+        // SceneView will handle morph targets internally or via frame update
+    }
+
+    fun stopLipSync() { _isSpeaking.value = false }
 
     fun endSession() {
         viewModelScope.launch {
@@ -275,9 +306,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
-        llm.unload()
-        sttService.release()
-        ttsService.release()
+        llm.unload(); sttService.release(); ttsService.release()
         super.onCleared()
     }
 }

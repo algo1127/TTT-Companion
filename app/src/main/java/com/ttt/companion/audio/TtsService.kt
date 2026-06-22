@@ -72,7 +72,7 @@ class TtsService(private val context: Context) {
                     ),
                     numThreads = 6,
                     debug      = false,
-                    provider   = "gpu"
+                    provider   = "cpu"
                 ),
                 maxNumSentences = 1
             )

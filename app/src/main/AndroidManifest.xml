@@ -15,6 +15,7 @@
     <!-- Keep model in RAM while screen is off (optional but useful) -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
     <queries>
@@ -32,6 +33,8 @@
     </queries>
 
     <application
+        android:largeHeap="true"
+        android:name=".CompanionApp"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -40,6 +43,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.TTTCompanion">
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

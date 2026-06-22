@@ -15,6 +15,7 @@ import com.ttt.companion.llm.DownloadState
 import com.ttt.companion.ui.MainViewModel
 import com.ttt.companion.ui.SetupScreen
 import com.ttt.companion.ui.TestScreen
+import com.ttt.companion.ui.VrmScreen
 
 class MainActivity : ComponentActivity() {
 
@@ -46,7 +47,7 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 val downloadState by viewModel.downloadState.collectAsStateWithLifecycle()
                 if (downloadState == DownloadState.Done || downloadState == DownloadState.AlreadyHave) {
-                    TestScreen(viewModel)
+                    VrmScreen(viewModel)
                 } else {
                     SetupScreen(viewModel)
                 }
