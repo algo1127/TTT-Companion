@@ -155,39 +155,76 @@ fun VrmSceneView(
                         val targetNames = node.morphTargetNames
                         val indices = targetNames.mapIndexedNotNull { i, name ->
                             val n = name.lowercase()
-                            if (n == "a" || n == "aiueo_a" || n.contains("mouth_a") ||
+                            if (n == "a" || n == "aiueo_a" || n.contains("mouth_a") || 
                                 n == "jawopen" || n == "mouthopen" || n == "mouthopen1") i else null
                         }
                         node to indices
                     }.filter { it.second.isNotEmpty() }
 
+                    // Find morph indices for blinking
+                    val blinkIndices = renderableNodes.map { node ->
+                        val targetNames = node.morphTargetNames
+                        val indices = targetNames.mapIndexedNotNull { i, name ->
+                            val n = name.lowercase()
+                            if (n == "eyeblinkleft" || n == "eyeblinkright" || n == "eyeblink") i else null
+                        }
+                        node to indices
+                    }.filter { it.second.isNotEmpty() }
+
                     var startTimeNanos = -1L
+                    var nextBlinkTime = 0f
+                    var blinkStartTime = -1f
 
                     // Move logic to onFrame so it updates at 60fps
                     onFrame = { frameTimeNanos ->
-                        if (currentIsSpeaking) {
-                            if (startTimeNanos == -1L) startTimeNanos = frameTimeNanos
-                            val t = (frameTimeNanos - startTimeNanos) / 1_000_000_000f
+                        if (startTimeNanos == -1L) startTimeNanos = frameTimeNanos
+                        val t = (frameTimeNanos - startTimeNanos) / 1_000_000_000f
 
-                            // More organic speech oscillation using two sine waves
+                        // ── Lip Sync ─────────────────────────────────────────
+                        if (currentIsSpeaking) {
                             val osc1 = Math.sin(t.toDouble() * 15.0).toFloat() * 0.25f
                             val osc2 = Math.sin(t.toDouble() * 7.0).toFloat() * 0.25f
                             val value = (osc1 + osc2 + 0.4f).coerceIn(0f, 0.9f)
-
+                            
                             mouthIndices.forEach { (node, indices) ->
-                                val morphCount = node.morphTargetNames.size
-                                val weights = FloatArray(morphCount)
+                                val weights = FloatArray(node.morphTargetNames.size)
                                 indices.forEach { idx -> weights[idx] = value }
                                 node.setMorphWeights(weights, 0)
                             }
                         } else {
-                            if (startTimeNanos != -1L) {
-                                startTimeNanos = -1L
-                                // Reset mouth to closed
-                                mouthIndices.forEach { (node, indices) ->
-                                    val morphCount = node.morphTargetNames.size
-                                    val weights = FloatArray(morphCount)
+                            mouthIndices.forEach { (node, indices) ->
+                                val weights = FloatArray(node.morphTargetNames.size)
+                                indices.forEach { idx -> weights[idx] = 0f }
+                                node.setMorphWeights(weights, 0)
+                            }
+                        }
+
+                        // ── Blinking ─────────────────────────────────────────
+                        // Initialize next blink time
+                        if (nextBlinkTime == 0f) {
+                            nextBlinkTime = t + (2f + Math.random().toFloat() * 4f)
+                        }
+
+                        if (t > nextBlinkTime && blinkStartTime == -1f) {
+                            blinkStartTime = t
+                        }
+
+                        if (blinkStartTime != -1f) {
+                            val blinkProgress = (t - blinkStartTime) / 0.12f // Fast 120ms blink
+                            if (blinkProgress > 1f) {
+                                blinkStartTime = -1f
+                                nextBlinkTime = t + (2f + Math.random().toFloat() * 5f) // Next blink in 2-7s
+                                blinkIndices.forEach { (node, indices) ->
+                                    val weights = FloatArray(node.morphTargetNames.size)
                                     indices.forEach { idx -> weights[idx] = 0f }
+                                    node.setMorphWeights(weights, 0)
+                                }
+                            } else {
+                                // Smooth triangle wave for blink: 0 -> 1 -> 0
+                                val blinkValue = if (blinkProgress < 0.5f) blinkProgress * 2f else 2f - (blinkProgress * 2f)
+                                blinkIndices.forEach { (node, indices) ->
+                                    val weights = FloatArray(node.morphTargetNames.size)
+                                    indices.forEach { idx -> weights[idx] = blinkValue }
                                     node.setMorphWeights(weights, 0)
                                 }
                             }
