@@ -4,7 +4,7 @@
     <selectionStates>
       <SelectionState runConfigName="app">
         <option name="selectionMode" value="DROPDOWN" />
-        <DropdownSelection timestamp="2026-04-27T13:26:39.059081200Z">
+        <DropdownSelection timestamp="2026-08-22T15:20:09.129398500Z">
           <Target type="DEFAULT_BOOT">
             <handle>
               <DeviceId pluginId="LocalEmulator" identifier="path=C:\Users\victo\.android\avd\Umidigi_A15T.avd" />
