@@ -11,6 +11,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -43,7 +49,6 @@ fun VrmScreen(viewModel: MainViewModel) {
     var inputText    by remember { mutableStateOf("") }
     val listState    = rememberLazyListState()
     val isSpeaking   by viewModel.isSpeaking.collectAsStateWithLifecycle()
-    val cameraData   = remember { viewModel.loadCameraPosition() }
 
     // Load VRM on entry
     LaunchedEffect(Unit) {
@@ -57,21 +62,16 @@ fun VrmScreen(viewModel: MainViewModel) {
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF1A1A2E))) {
 
-        // ── Native 3D View ─────────────
+        // ── Godot 3D View ─────────────
         if (vrmActive) {
-            VrmSceneView(
+            GodotVrmView(
                 modelPath = vrmUrl,
                 isSpeaking = isSpeaking,
-                isLocked = isCameraLocked,
-                initialCameraData = cameraData,
                 modifier = Modifier.fillMaxSize(),
                 onLoaded = {
                     viewModel.onVrmLoaded()
                 },
-                onError = { msg -> viewModel.onVrmError(msg) },
-                onCameraMoved = { px, py, pz, tx, ty, tz ->
-                    viewModel.saveCameraPosition(px, py, pz, tx, ty, tz)
-                }
+                onError = { msg -> viewModel.onVrmError(msg) }
             )
         }
 
@@ -217,7 +217,11 @@ fun VrmScreen(viewModel: MainViewModel) {
                     },
                     enabled = ready && inputText.isNotBlank()
                 ) {
-                    Text("➤", fontSize = 20.sp, color = if (ready) Color(0xFF6699FF) else Color(0xFF333333))
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Send,
+                        contentDescription = "Send",
+                        tint = if (ready) Color(0xFF6699FF) else Color(0xFF333333)
+                    )
                 }
 
                 // Mic button
@@ -226,10 +230,10 @@ fun VrmScreen(viewModel: MainViewModel) {
                     onClick = { viewModel.toggleMic() },
                     enabled = ready
                 ) {
-                    Text(
-                        if (isSpeaking) "⏹" else "🎤",
-                        fontSize = 20.sp,
-                        color = if (isSpeaking) Color(0xFFFF6666) else Color.White
+                    Icon(
+                        imageVector = if (isSpeaking) Icons.Default.Stop else Icons.Default.Mic,
+                        contentDescription = "Toggle Microphone",
+                        tint = if (isSpeaking) Color(0xFFFF6666) else Color.White
                     )
                 }
 
@@ -238,10 +242,10 @@ fun VrmScreen(viewModel: MainViewModel) {
                     onClick = { viewModel.toggleCameraLock() },
                     enabled = ready
                 ) {
-                    Text(
-                        if (isCameraLocked) "🔒" else "🔓",
-                        fontSize = 20.sp,
-                        color = if (isCameraLocked) Color(0xFF6699FF) else Color.White
+                    Icon(
+                        imageVector = if (isCameraLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                        contentDescription = "Toggle Camera Lock",
+                        tint = if (isCameraLocked) Color(0xFF6699FF) else Color.White
                     )
                 }
             }

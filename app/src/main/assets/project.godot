@@ -1,0 +1,24 @@
+; Engine configuration file.
+config_version=5
+
+[application]
+config/name="VRM"
+run/main_scene="res://main.tscn"
+
+[display]
+window/size/viewport_width=720
+window/size/viewport_height=1280
+window/stretch/mode="canvas_items"
+window/stretch/aspect="keep"
+window/handheld/orientation="portrait"
+
+[rendering]
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+gl_compatibility/item_shadow_mask=true
+mesh_storage/vram_compression/import_etc2_astc=true
+# Forces the engine to respect highly complex 8-bone skinning data
+mesh_storage/skinning/max_blend_weights=8
+# Prevents the engine from crushing 16-bit vertex attributes down to 8-bit integers
+mesh_compression/compress_positions=false
+mesh_compression/compress_normals=false

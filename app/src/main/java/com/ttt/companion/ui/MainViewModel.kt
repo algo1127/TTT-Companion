@@ -45,7 +45,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _vrmLoading = MutableStateFlow(true)
     val vrmLoading = _vrmLoading.asStateFlow()
 
-    private val _isCameraLocked = MutableStateFlow(false)
+    private val _isCameraLocked = MutableStateFlow(
+        app.getSharedPreferences("vrm_prefs", Application.MODE_PRIVATE)
+            .getBoolean("cam_locked", false)
+    )
     val isCameraLocked = _isCameraLocked.asStateFlow()
 
     private val _isSpeaking = MutableStateFlow(false)
@@ -299,10 +302,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // ── Camera Management ────────────────────────────────────────────────────
 
     fun toggleCameraLock() {
-        _isCameraLocked.value = !_isCameraLocked.value
-        if (_isCameraLocked.value) {
-            // Logic to trigger save can be added here or handled by the View
-        }
+        val newState = !_isCameraLocked.value
+        _isCameraLocked.value = newState
+        getApplication<Application>().getSharedPreferences("vrm_prefs", Application.MODE_PRIVATE)
+            .edit()
+            .putBoolean("cam_locked", newState)
+            .apply()
     }
 
     fun saveCameraPosition(px: Float, py: Float, pz: Float, tx: Float, ty: Float, tz: Float) {

@@ -18,8 +18,8 @@ object VrmAssetHelper {
     suspend fun ensureVrm(context: Context, characterId: String): String? =
         withContext(Dispatchers.IO) {
             val assetPath = "characters/$characterId/model.vrm"
-            // SceneView's GLTF loader prefers .glb extension for proper detection
-            val outPath   = "characters/$characterId/model.glb"
+            // Godot VRM plugin requires .vrm extension to trigger the correct importer
+            val outPath   = "characters/$characterId/model.vrm"
             val outFile   = File(context.filesDir, outPath)
 
             // FOR NOW: Always copy/update on launch to ensure latest asset is used

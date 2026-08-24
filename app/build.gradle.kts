@@ -45,11 +45,25 @@ android {
         compose = true
     }
 
-   
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
+
+    androidResources {
+        noCompress += listOf("pck", "gdscript", "gdc", "gd", "tscn", "gdshader", "godot")
+    }
+
+    @Suppress("DEPRECATION")
+    aaptOptions {
+        ignoreAssetsPattern = "!.svn:!.git:!.gitignore:!.ds_store:!*.scc:<dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"
+    }
 }
 
 dependencies {
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.fragment.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
@@ -59,7 +73,7 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.room3.common.jvm)
     implementation(libs.commons.compress)
-    implementation(libs.sceneview)
+    implementation(libs.godot)
 
     // Lifecycle
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
