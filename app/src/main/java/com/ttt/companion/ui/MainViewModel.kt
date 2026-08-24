@@ -45,17 +45,35 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _vrmLoading = MutableStateFlow(true)
     val vrmLoading = _vrmLoading.asStateFlow()
 
-    private val _isCameraLocked = MutableStateFlow(false)
+    private val _isCameraLocked = MutableStateFlow(
+        app.getSharedPreferences("vrm_prefs", Application.MODE_PRIVATE)
+            .getBoolean("cam_locked", false)
+    )
     val isCameraLocked = _isCameraLocked.asStateFlow()
 
     private val _isSpeaking = MutableStateFlow(false)
     val isSpeaking = _isSpeaking.asStateFlow()
 
+    enum class Screen { VRM, SETTINGS, PROFILE, CHARACTER }
+    private val _currentScreen = MutableStateFlow(Screen.VRM)
+    val currentScreen = _currentScreen.asStateFlow()
+
     val character = defaultCharacter(app.filesDir)
 
-    // Build the full system prompt.
-    private var fullSystemPrompt: String = character.systemPrompt +
-            "\n\n" + com.ttt.companion.tools.ToolDefinitions.SYSTEM_PROMPT_ADDITION
+    private val _customName = MutableStateFlow(
+        app.getSharedPreferences("character_prefs", Application.MODE_PRIVATE)
+            .getString("char_name", character.name) ?: character.name
+    )
+    val customName = _customName.asStateFlow()
+
+    private val _customPrompt = MutableStateFlow(
+        app.getSharedPreferences("character_prefs", Application.MODE_PRIVATE)
+            .getString("char_prompt", getPromptBody(character.systemPrompt)) ?: getPromptBody(character.systemPrompt)
+    )
+    val customPrompt = _customPrompt.asStateFlow()
+
+    // Build the full system prompt dynamically.
+    private var fullSystemPrompt: String = buildFullPrompt(_customName.value, _customPrompt.value)
 
     // ── Setup / download state ────────────────────────────────────────────────
 
@@ -161,7 +179,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(Dispatchers.IO) {
             copyVoiceSampleIfNeeded()
             _modelState.value = LlmService.LoadState.Loading
-            val llmResult = llm.loadModel(character)
+            
+            // Use current character name for the profile passed to LLM
+            val activeCharacter = character.copy(
+                name = _customName.value,
+                systemPrompt = buildFullPrompt(_customName.value, _customPrompt.value)
+            )
+            
+            val llmResult = llm.loadModel(activeCharacter)
             withContext(Dispatchers.Main) { _modelState.value = llmResult }
             if (llmResult is LlmService.LoadState.Error) return@launch
 
@@ -296,13 +321,83 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         skipVrm()
     }
 
+    // ── Navigation ───────────────────────────────────────────────────────────
+
+    fun setScreen(screen: Screen) {
+        _currentScreen.value = screen
+    }
+
+    // ── Character Settings ───────────────────────────────────────────────────
+
+    private fun getPromptBody(fullPrompt: String): String {
+        val lines = fullPrompt.trimIndent().lines()
+        return if (lines.isNotEmpty() && lines[0].contains("You are", ignoreCase = true)) {
+            lines.drop(1).joinToString("\n").trimIndent()
+        } else {
+            fullPrompt
+        }
+    }
+
+    private fun buildFullPrompt(name: String, body: String): String {
+        val mandatoryLine = "You are $name, a local AI running on the user's mobile phone."
+        return mandatoryLine + "\n" + body + "\n\n" + com.ttt.companion.tools.ToolDefinitions.SYSTEM_PROMPT_ADDITION
+    }
+
+    fun saveCharacterSettings(name: String, promptBody: String) {
+        _customName.value = name
+        _customPrompt.value = promptBody
+        fullSystemPrompt = buildFullPrompt(name, promptBody)
+
+        getApplication<Application>().getSharedPreferences("character_prefs", Application.MODE_PRIVATE)
+            .edit()
+            .putString("char_name", name)
+            .putString("char_prompt", promptBody)
+            .apply()
+        
+        restartLlm()
+    }
+
+    fun resetCharacterSettings() {
+        val defaultChar = defaultCharacter(getApplication<Application>().filesDir)
+        val defaultBody = getPromptBody(defaultChar.systemPrompt)
+        
+        saveCharacterSettings(defaultChar.name, defaultBody)
+    }
+
+    // ── Service Management ───────────────────────────────────────────────────
+
+    fun restartLlm() {
+        viewModelScope.launch(Dispatchers.IO) {
+            Log.i(TAG, "♻️ Restarting LLM services...")
+            llm.unload()
+            sttService.release()
+            ttsService.release()
+            withContext(Dispatchers.Main) {
+                _modelState.value = LlmService.LoadState.Idle
+                _sttReady.value = false
+                _ttsReady.value = false
+            }
+            loadAllModels()
+        }
+    }
+
+    fun restartVrmEngine() {
+        Log.i(TAG, "♻️ Restarting 3D engine...")
+        _vrmUrl.value = null
+        _vrmLoading.value = true
+        vrmLoadedOnce = false
+        startVrm()
+    }
+
     // ── Camera Management ────────────────────────────────────────────────────
 
     fun toggleCameraLock() {
-        _isCameraLocked.value = !_isCameraLocked.value
-        if (_isCameraLocked.value) {
-            // Logic to trigger save can be added here or handled by the View
-        }
+        val newState = !_isCameraLocked.value
+        _isCameraLocked.value = newState
+        getApplication<Application>().getSharedPreferences("vrm_prefs", Application.MODE_PRIVATE)
+            .edit()
+            .putBoolean("cam_locked", newState)
+            .apply()
     }
 
     fun saveCameraPosition(px: Float, py: Float, pz: Float, tx: Float, ty: Float, tz: Float) {

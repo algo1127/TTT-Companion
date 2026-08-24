@@ -29,10 +29,6 @@ fun VrmSceneView(
     val engine = rememberEngine()
     val modelLoader = rememberModelLoader(engine)
 
-    // Ensure the frame loop always has access to the latest speaking state
-    // without re-running the 'apply' block of the ModelNode.
-    val currentIsSpeaking by rememberUpdatedState(isSpeaking)
-
     // Check 1: Detailed logging for the VRM file path and its availability
     modelPath?.let { path ->
         SideEffect {
@@ -149,18 +145,6 @@ fun VrmSceneView(
                 scaleToUnits = 1.0f,
                 position = Position(x = 0f, y = -1.2f, z = -1.5f),
                 apply = {
-                    // Find the index of mouth-related morph targets.
-                    // VRM standard uses A, I, U, E, O.
-                    val mouthIndices = renderableNodes.map { node ->
-                        val targetNames = node.morphTargetNames
-                        val indices = targetNames.mapIndexedNotNull { i, name ->
-                            val n = name.lowercase()
-                            if (n == "a" || n == "aiueo_a" || n.contains("mouth_a") || 
-                                n == "jawopen" || n == "mouthopen" || n == "mouthopen1") i else null
-                        }
-                        node to indices
-                    }.filter { it.second.isNotEmpty() }
-
                     // Find morph indices for blinking
                     val blinkIndices = renderableNodes.map { node ->
                         val targetNames = node.morphTargetNames
@@ -179,25 +163,6 @@ fun VrmSceneView(
                     onFrame = { frameTimeNanos ->
                         if (startTimeNanos == -1L) startTimeNanos = frameTimeNanos
                         val t = (frameTimeNanos - startTimeNanos) / 1_000_000_000f
-
-                        // ── Lip Sync ─────────────────────────────────────────
-                        if (currentIsSpeaking) {
-                            val osc1 = Math.sin(t.toDouble() * 15.0).toFloat() * 0.25f
-                            val osc2 = Math.sin(t.toDouble() * 7.0).toFloat() * 0.25f
-                            val value = (osc1 + osc2 + 0.4f).coerceIn(0f, 0.9f)
-                            
-                            mouthIndices.forEach { (node, indices) ->
-                                val weights = FloatArray(node.morphTargetNames.size)
-                                indices.forEach { idx -> weights[idx] = value }
-                                node.setMorphWeights(weights, 0)
-                            }
-                        } else {
-                            mouthIndices.forEach { (node, indices) ->
-                                val weights = FloatArray(node.morphTargetNames.size)
-                                indices.forEach { idx -> weights[idx] = 0f }
-                                node.setMorphWeights(weights, 0)
-                            }
-                        }
 
                         // ── Blinking ─────────────────────────────────────────
                         // Initialize next blink time

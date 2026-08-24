@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.animation.Crossfade
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.lifecycle.DefaultLifecycleObserver
@@ -16,6 +17,8 @@ import com.ttt.companion.ui.MainViewModel
 import com.ttt.companion.ui.SetupScreen
 import com.ttt.companion.ui.TestScreen
 import com.ttt.companion.ui.VrmScreen
+import com.ttt.companion.ui.SettingsScreen
+import com.ttt.companion.ui.CharacterScreen
 
 class MainActivity : ComponentActivity() {
 
@@ -46,8 +49,17 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 val downloadState by viewModel.downloadState.collectAsStateWithLifecycle()
+                val currentScreen by viewModel.currentScreen.collectAsStateWithLifecycle()
+
                 if (downloadState == DownloadState.Done || downloadState == DownloadState.AlreadyHave) {
-                    VrmScreen(viewModel)
+                    Crossfade(targetState = currentScreen, label = "ScreenTransition") { screen ->
+                        when (screen) {
+                            MainViewModel.Screen.VRM -> VrmScreen(viewModel)
+                            MainViewModel.Screen.SETTINGS -> SettingsScreen(viewModel)
+                            MainViewModel.Screen.CHARACTER -> CharacterScreen(viewModel)
+                            else -> VrmScreen(viewModel) // Fallback
+                        }
+                    }
                 } else {
                     SetupScreen(viewModel)
                 }
