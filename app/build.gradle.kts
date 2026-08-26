@@ -13,8 +13,8 @@ android {
         applicationId = "com.ttt.companion"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "2026-06-22"
+        versionCode = 5
+        versionName = "2026-08-26B"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

@@ -2,8 +2,7 @@ package com.ttt.companion.ui
 
 import android.annotation.SuppressLint
 import androidx.compose.animation.*
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
@@ -13,11 +12,13 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -42,6 +43,7 @@ fun VrmScreen(viewModel: MainViewModel) {
     val vrmActive    by viewModel.vrmActive.collectAsStateWithLifecycle()
     val vrmLoading   by viewModel.vrmLoading.collectAsStateWithLifecycle()
     val isCameraLocked by viewModel.isCameraLocked.collectAsStateWithLifecycle()
+    val characterName by viewModel.customName.collectAsStateWithLifecycle()
 
     // UI State
     var expanded     by remember { mutableStateOf(false) }
@@ -52,6 +54,16 @@ fun VrmScreen(viewModel: MainViewModel) {
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+
+    val pulseAlpha by rememberInfiniteTransition(label = "pulse").animateFloat(
+        initialValue = 1f,
+        targetValue = 0.3f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "alpha"
+    )
 
     // Load VRM on entry
     LaunchedEffect(Unit) {
@@ -65,7 +77,7 @@ fun VrmScreen(viewModel: MainViewModel) {
 
     ModalNavigationDrawer(
         drawerState = drawerState,
-        gesturesEnabled = true,
+        gesturesEnabled = isCameraLocked,
         drawerContent = {
             ModalDrawerSheet(
                 drawerContainerColor = PANEL_BG,
@@ -236,7 +248,7 @@ fun VrmScreen(viewModel: MainViewModel) {
                         items(messages) { msg ->
                             val isUser = msg.role == "user"
                             Text(
-                                text = "${if (isUser) "You" else viewModel.character.name}: ${msg.content}",
+                                text = "${if (isUser) "You" else characterName}: ${msg.content}",
                                 color = if (isUser) Color.White else Color(0xFFB0C8FF),
                                 fontSize = 13.sp,
                                 modifier = Modifier.fillMaxWidth(),
@@ -246,11 +258,32 @@ fun VrmScreen(viewModel: MainViewModel) {
                         if (isLoading) {
                             item {
                                 Text(
-                                    text = "${viewModel.character.name} is thinking...",
-                                    color = Color(0xFF888888),
+                                    text = "$characterName is thinking...",
+                                    color = Color(0xFF6699FF),
                                     fontSize = 12.sp,
-                                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                                    modifier = Modifier.alpha(pulseAlpha)
                                 )
+                            }
+                        }
+                        if (isSpeaking && !isLoading) {
+                                item {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.VolumeUp,
+                                        contentDescription = null,
+                                        tint = Color(0xFFFF6666),
+                                        modifier = Modifier.size(14.dp).alpha(pulseAlpha)
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        text = "$characterName is speaking...",
+                                        color = Color(0xFFFF6666),
+                                        fontSize = 12.sp,
+                                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                                        modifier = Modifier.alpha(pulseAlpha)
+                                    )
+                                }
                             }
                         }
                     }
@@ -287,31 +320,34 @@ fun VrmScreen(viewModel: MainViewModel) {
                         )
                     )
 
-                    // Send button
+                    // Combined Mic/Send button
                     IconButton(
                         onClick = {
-                            viewModel.sendMessage(inputText)
-                            inputText = ""
+                            if (isSpeaking) {
+                                viewModel.toggleMic()
+                            } else if (inputText.isNotBlank()) {
+                                viewModel.sendMessage(inputText)
+                                inputText = ""
+                            } else {
+                                viewModel.toggleMic()
+                            }
                         },
-                        enabled = ready && inputText.isNotBlank()
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "Send",
-                            tint = if (ready) Color(0xFF6699FF) else Color(0xFF333333)
-                        )
-                    }
-
-                    // Mic button
-                    val isSpeaking by viewModel.isSpeaking.collectAsStateWithLifecycle()
-                    IconButton(
-                        onClick = { viewModel.toggleMic() },
                         enabled = ready
                     ) {
+                        val icon = when {
+                            isSpeaking -> Icons.Default.Stop
+                            inputText.isNotBlank() -> Icons.AutoMirrored.Filled.Send
+                            else -> Icons.Default.Mic
+                        }
+                        val tint = when {
+                            isSpeaking -> Color(0xFFFF6666)
+                            inputText.isNotBlank() -> Color(0xFF6699FF)
+                            else -> Color.White
+                        }
                         Icon(
-                            imageVector = if (isSpeaking) Icons.Default.Stop else Icons.Default.Mic,
-                            contentDescription = "Toggle Microphone",
-                            tint = if (isSpeaking) Color(0xFFFF6666) else Color.White
+                            imageVector = icon,
+                            contentDescription = if (isSpeaking) "Stop" else if (inputText.isNotBlank()) "Send" else "Mic",
+                            tint = if (ready) tint else Color(0xFF333333)
                         )
                     }
 

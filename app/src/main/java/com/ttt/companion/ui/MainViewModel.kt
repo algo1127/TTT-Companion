@@ -72,6 +72,24 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     )
     val customPrompt = _customPrompt.asStateFlow()
 
+    private val _customVoiceId = MutableStateFlow(
+        app.getSharedPreferences("character_prefs", Application.MODE_PRIVATE)
+            .getInt("char_voice_id", character.ttsVoiceId)
+    )
+    val customVoiceId = _customVoiceId.asStateFlow()
+
+    private val _customVoiceLang = MutableStateFlow(
+        app.getSharedPreferences("character_prefs", Application.MODE_PRIVATE)
+            .getString("char_voice_lang", character.ttsLang) ?: character.ttsLang
+    )
+    val customVoiceLang = _customVoiceLang.asStateFlow()
+
+    private val _ttsSpeed = MutableStateFlow(
+        app.getSharedPreferences("character_prefs", Application.MODE_PRIVATE)
+            .getFloat("char_tts_speed", 1.1f)
+    )
+    val ttsSpeed = _ttsSpeed.asStateFlow()
+
     // Build the full system prompt dynamically.
     private var fullSystemPrompt: String = buildFullPrompt(_customName.value, _customPrompt.value)
 
@@ -195,8 +213,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val sttResult = sttService.init()
             withContext(Dispatchers.Main) { _sttReady.value = sttResult is SttService.LoadState.Ready }
 
-            Log.d(TAG, "Initializing TTS...")
-            val ttsResult = ttsService.init(character.voiceSamplePath)
+            Log.d(TAG, "Initializing TTS with lang: ${_customVoiceLang.value}...")
+            val ttsResult = ttsService.init(character.voiceSamplePath, lang = _customVoiceLang.value)
             withContext(Dispatchers.Main) { _ttsReady.value = ttsResult is TtsService.LoadState.Ready }
         }
     }
@@ -241,7 +259,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     _isSpeaking.value = true
                     startLipSync()
                     try {
-                        ttsService.speak(response)
+                        val cleanResponse = response
+                            .replace(Regex("[\\\"'“”]"), "") // Remove quotes
+                            .replace(Regex("([.!?])"), "$1 ") // Ensure space after punctuation
+                        
+                        ttsService.speak(
+                            text = cleanResponse, 
+                            voiceId = _customVoiceId.value,
+                            speed = _ttsSpeed.value
+                        )
                     } finally {
                         _isSpeaking.value = false
                         _audioState.value = AudioState.Idle
@@ -251,6 +277,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 _messages.value = updatedHistory + ChatMessage(role = "assistant", content = "[Error: ${e.message}]")
             } finally {
                 _isLoading.value = false
+            }
+        }
+    }
+
+    fun previewVoice(voiceId: Int, lang: String) {
+        if (!_ttsReady.value) return
+        viewModelScope.launch {
+            _audioState.value = AudioState.Speaking
+            _isSpeaking.value = true
+            try {
+                // We don't re-init the whole engine (too slow), but Kokoro 
+                // allows switching SID instantly on the fly.
+                val phrase = when(lang) {
+                    "ja" -> "こんにちは、私の新しい声はどうですか？"
+                    "zh" -> "你好，你觉得我的新声音怎么样？"
+                    else -> "Hello, how does my new voice sound to you?"
+                }
+                ttsService.speak(phrase, voiceId = voiceId, speed = _ttsSpeed.value)
+            } finally {
+                _isSpeaking.value = false
+                _audioState.value = AudioState.Idle
             }
         }
     }
@@ -343,15 +390,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         return mandatoryLine + "\n" + body + "\n\n" + com.ttt.companion.tools.ToolDefinitions.SYSTEM_PROMPT_ADDITION
     }
 
-    fun saveCharacterSettings(name: String, promptBody: String) {
+    fun saveCharacterSettings(name: String, promptBody: String, voiceId: Int, voiceLang: String, speed: Float) {
         _customName.value = name
         _customPrompt.value = promptBody
+        _customVoiceId.value = voiceId
+        _customVoiceLang.value = voiceLang
+        _ttsSpeed.value = speed
         fullSystemPrompt = buildFullPrompt(name, promptBody)
 
         getApplication<Application>().getSharedPreferences("character_prefs", Application.MODE_PRIVATE)
             .edit()
             .putString("char_name", name)
             .putString("char_prompt", promptBody)
+            .putInt("char_voice_id", voiceId)
+            .putString("char_voice_lang", voiceLang)
+            .putFloat("char_tts_speed", speed)
             .apply()
         
         restartLlm()
@@ -361,7 +414,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val defaultChar = defaultCharacter(getApplication<Application>().filesDir)
         val defaultBody = getPromptBody(defaultChar.systemPrompt)
         
-        saveCharacterSettings(defaultChar.name, defaultBody)
+        saveCharacterSettings(defaultChar.name, defaultBody, defaultChar.ttsVoiceId, defaultChar.ttsLang, 1.1f)
     }
 
     // ── Service Management ───────────────────────────────────────────────────

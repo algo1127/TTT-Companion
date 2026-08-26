@@ -15,6 +15,8 @@ data class CharacterProfile(
     val modelPath: String,           // absolute path to the LLM .gguf file
     val voiceSamplePath: String = "", // absolute path to the reference WAV for TTS cloning
     val vrmPath: String = "",         // Phase 4
+    val ttsVoiceId: Int = 2,         // Kokoro Speaker ID
+    val ttsLang: String = "en-us",   // Kokoro Language (en-us, en-gb, zh, ja, etc.)
 
     // Inference parameters
     val temperature: Float = 0.7f,
@@ -42,6 +44,7 @@ fun defaultCharacter(filesDir: File) = CharacterProfile(
     """.trimIndent(),
     modelPath       = File(File(filesDir, ModelConfig.MODEL_DIR), ModelConfig.MODEL_FILENAME).absolutePath,
     voiceSamplePath = File(File(filesDir, AudioConfig.VOICE_SAMPLE_DIR), AudioConfig.VOICE_SAMPLE_FILE).absolutePath,
+    ttsVoiceId      = 2, // af_bella in kokoro-multi-v1.0
     
     // Default inference settings for Aria
     temperature   = 0.7f,

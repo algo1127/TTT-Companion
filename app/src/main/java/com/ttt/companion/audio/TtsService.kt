@@ -34,7 +34,7 @@ class TtsService(private val context: Context) {
     /**
      * Load the Kokoro ONNX model.
      */
-    suspend fun init(referenceWavPath: String): LoadState = withContext(Dispatchers.IO) {
+    suspend fun init(referenceWavPath: String, lang: String = "en-us"): LoadState = withContext(Dispatchers.IO) {
         try {
             val modelDir    = File(context.filesDir, AudioConfig.TTS_DIR)
             val modelFile   = File(modelDir, AudioConfig.TTS_MODEL_FILE)
@@ -48,10 +48,10 @@ class TtsService(private val context: Context) {
                     Log.e(TAG, "Missing TTS model file: ${f.absolutePath}")
                     return@withContext LoadState.Error("Missing: ${f.name}")
                 }
-                if (f.length() < 1024) {
-                    Log.e(TAG, "TTS file is suspiciously small (${f.length()} bytes): ${f.absolutePath}")
+                if (f.length() == 0L) {
+                    Log.e(TAG, "TTS file is empty: ${f.absolutePath}")
                     f.delete()
-                    return@withContext LoadState.Error("Corrupted: ${f.name}")
+                    return@withContext LoadState.Error("Empty: ${f.name}")
                 }
                 Log.d(TAG, "TTS File: ${f.name}, size=${f.length()} bytes")
             }
@@ -62,13 +62,27 @@ class TtsService(private val context: Context) {
                 untar(dataTarFile, modelDir)
             }
 
+            // Map language to lexicon
+            val lexiconFile = when (lang.lowercase()) {
+                "en-us" -> File(modelDir, AudioConfig.TTS_LEXICON_EN_US)
+                "en-gb" -> File(modelDir, AudioConfig.TTS_LEXICON_EN_GB)
+                "zh"    -> File(modelDir, AudioConfig.TTS_LEXICON_ZH)
+                else    -> null
+            }
+
+            if (lexiconFile?.exists() == false) {
+                Log.w(TAG, "Lexicon not found for $lang, falling back to rules: ${lexiconFile.absolutePath}")
+            }
+
             val config = OfflineTtsConfig(
                 model = OfflineTtsModelConfig(
                     kokoro = OfflineTtsKokoroModelConfig(
                         model = modelFile.absolutePath,
                         voices = voicesFile.absolutePath,
                         tokens = tokensFile.absolutePath,
-                        dataDir = dataDir.absolutePath
+                        dataDir = dataDir.absolutePath,
+                        lexicon = lexiconFile?.absolutePath ?: "",
+                        lang = lang
                     ),
                     numThreads = 6,
                     debug      = false,
@@ -109,15 +123,15 @@ class TtsService(private val context: Context) {
         }
     }
 
-    suspend fun speak(text: String, speed: Float = 1.0f) = withContext(Dispatchers.IO) {
+    suspend fun speak(text: String, voiceId: Int = 0, speed: Float = 1.0f) = withContext(Dispatchers.IO) {
         val engine = tts ?: run {
             Log.e(TAG, "speak() called before init()")
             return@withContext
         }
 
         try {
-            Log.d(TAG, "Generating TTS for: \"$text\"")
-            val audio = engine.generate(text = text, sid = 0, speed = speed)
+            Log.d(TAG, "Generating TTS for: \"$text\" (voice=$voiceId)")
+            val audio = engine.generate(text = text, sid = voiceId, speed = speed)
             Log.d(TAG, "TTS done — ${audio.samples.size} samples @ ${audio.sampleRate} Hz")
             playPcm(audio.samples, audio.sampleRate)
         } catch (e: Exception) {

@@ -94,9 +94,9 @@ fun SetupScreen(viewModel: MainViewModel) {
 @Composable
 private fun PhaseList(current: SetupPhase?) {
     val phases = listOf(
-        Triple(SetupPhase.LLM, "LLM (Qwen 3.5-4B)",            "~2.5 GB"),
+        Triple(SetupPhase.LLM, "LLM (Qwen 3.5-4B)",            "~2.7 GB"),
         Triple(SetupPhase.STT, "Speech recognition (Whisper)", "~87 MB"),
-        Triple(SetupPhase.TTS, "Voice synthesis (XTTS-v2)",    "~1.6 GB")
+        Triple(SetupPhase.TTS, "Voice synthesis (Kokoro Multi)", "~420 MB")
     )
     Column(
         modifier = Modifier
