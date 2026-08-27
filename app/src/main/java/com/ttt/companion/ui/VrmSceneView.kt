@@ -13,15 +13,19 @@ import io.github.sceneview.rememberMainLightNode
 import io.github.sceneview.model.ModelInstance
 import io.github.sceneview.rememberCameraManipulator
 import io.github.sceneview.gesture.CameraGestureDetector
+import io.github.sceneview.managers.getTransform
+import io.github.sceneview.node.ModelNode
+import io.github.sceneview.node.Node
 import java.io.File
 
 @Composable
 fun VrmSceneView(
     modelPath: String?,
+    modifier: Modifier = Modifier,
+    idleAnimPath: String? = null,
     isSpeaking: Boolean,
     isLocked: Boolean,
     initialCameraData: FloatArray?,
-    modifier: Modifier = Modifier,
     onLoaded: () -> Unit,
     onError: (String) -> Unit,
     onCameraMoved: (px: Float, py: Float, pz: Float, tx: Float, ty: Float, tz: Float) -> Unit
@@ -39,6 +43,7 @@ fun VrmSceneView(
 
     // We manage the model instance manually to capture the load result and errors (Check 2)
     var modelInstance by remember { mutableStateOf<ModelInstance?>(null) }
+    var animInstance by remember { mutableStateOf<ModelInstance?>(null) }
 
     LaunchedEffect(modelPath) {
         if (modelPath == null) {
@@ -47,19 +52,34 @@ fun VrmSceneView(
             return@LaunchedEffect
         }
 
-        // Check 2: Ensure correct URI format and use loadModelInstanceAsync for result tracking
         val fileLocation = if (modelPath.startsWith("/")) "file://$modelPath" else modelPath
 
         modelLoader.loadModelInstanceAsync(
             fileLocation = fileLocation,
             onResult = { instance ->
-                Log.e("SCENEVIEW", "onResult instance=$instance")
+                Log.e("SCENEVIEW", "onResult model instance=$instance")
                 if (instance != null) {
                     modelInstance = instance
                     onLoaded()
                 } else {
-                    onError("null instance")
+                    onError("null model instance")
                 }
+            }
+        )
+    }
+
+    LaunchedEffect(idleAnimPath) {
+        if (idleAnimPath == null) {
+            animInstance = null
+            return@LaunchedEffect
+        }
+        val fileLocation = if (idleAnimPath.startsWith("/")) "file://$idleAnimPath" else idleAnimPath
+        Log.d("SCENEVIEW", "Loading animation from $fileLocation")
+        modelLoader.loadModelInstanceAsync(
+            fileLocation = fileLocation,
+            onResult = { instance ->
+                Log.d("SCENEVIEW", "Animation instance loaded: $instance")
+                animInstance = instance
             }
         )
     }
@@ -145,6 +165,12 @@ fun VrmSceneView(
                 scaleToUnits = 1.0f,
                 position = Position(x = 0f, y = -1.2f, z = -1.5f),
                 apply = {
+                    // Map nodes for retargeting
+                    val boneMap = mutableMapOf<String, Node>()
+                    nodes.forEach { node ->
+                        node.name?.let { boneMap[it] = node }
+                    }
+
                     // Find morph indices for blinking
                     val blinkIndices = renderableNodes.map { node ->
                         val targetNames = node.morphTargetNames
@@ -159,10 +185,39 @@ fun VrmSceneView(
                     var nextBlinkTime = 0f
                     var blinkStartTime = -1f
 
-                    // Move logic to onFrame so it updates at 60fps
                     onFrame = { frameTimeNanos ->
                         if (startTimeNanos == -1L) startTimeNanos = frameTimeNanos
                         val t = (frameTimeNanos - startTimeNanos) / 1_000_000_000f
+
+                        /*
+                        // ── Animation Retargeting ────────────────────────────
+                        animInstance?.let { anim ->
+                            val animator = anim.animator
+                            if (animator.animationCount > 0) {
+                                val duration = animator.getAnimationDuration(0)
+                                val animTime = t % duration
+                                animator.applyAnimation(0, animTime)
+                                animator.updateBoneMatrices()
+
+                                // Sync bones by name
+                                val animAsset = anim.asset
+                                anim.entities.forEach { entity ->
+                                    val name = animAsset.getName(entity)
+                                    if (name != null && boneMap.containsKey(name)) {
+                                        val targetNode: Node = boneMap[name]!!
+                                        
+                                        // Copy local transform from anim asset to target model
+                                        val transformManager = engine.transformManager
+                                        val animSourceInstance = transformManager.getInstance(entity)
+                                        if (animSourceInstance != 0) {
+                                            // Directly copy the local transform
+                                            targetNode.transform = transformManager.getTransform(animSourceInstance)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        */
 
                         // ── Blinking ─────────────────────────────────────────
                         // Initialize next blink time

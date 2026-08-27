@@ -14,6 +14,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontStyle
@@ -24,20 +25,68 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 private val PANEL_BG = Color(0xCC000000)
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CharacterScreen(viewModel: MainViewModel) {
-    val initialName by viewModel.customName.collectAsStateWithLifecycle()
-    val initialPrompt by viewModel.customPrompt.collectAsStateWithLifecycle()
-    val initialVoiceId by viewModel.customVoiceId.collectAsStateWithLifecycle()
-    val initialVoiceLang by viewModel.customVoiceLang.collectAsStateWithLifecycle()
-    val initialSpeed by viewModel.ttsSpeed.collectAsStateWithLifecycle()
+    val name by viewModel.customName.collectAsStateWithLifecycle()
+    val prompt by viewModel.customPrompt.collectAsStateWithLifecycle()
+    val voiceId by viewModel.customVoiceId.collectAsStateWithLifecycle()
+    val voiceLang by viewModel.customVoiceLang.collectAsStateWithLifecycle()
+    val speed by viewModel.ttsSpeed.collectAsStateWithLifecycle()
+    val pitch by viewModel.ttsPitch.collectAsStateWithLifecycle()
+    val initialUseBlend by viewModel.useBlending.collectAsStateWithLifecycle()
+    val initialVoiceA by viewModel.voiceA.collectAsStateWithLifecycle()
+    val initialVoiceB by viewModel.voiceB.collectAsStateWithLifecycle()
+    val initialBlendRatio by viewModel.blendRatio.collectAsStateWithLifecycle()
 
+    CharacterScreenContent(
+        initialName = name,
+        initialPrompt = prompt,
+        initialVoiceId = voiceId,
+        initialVoiceLang = voiceLang,
+        initialSpeed = speed,
+        initialPitch = pitch,
+        initialUseBlend = initialUseBlend,
+        initialVoiceA = initialVoiceA,
+        initialVoiceB = initialVoiceB,
+        initialBlendRatio = initialBlendRatio,
+        onBackClick = { viewModel.setScreen(MainViewModel.Screen.VRM) },
+        onResetClick = { viewModel.resetCharacterSettings() },
+        onSaveClick = { n, p, v, l, s, pi, ub, va, vb, r -> 
+            viewModel.saveCharacterSettings(n, p, v, l, s, pi, ub, va, vb, r) 
+        },
+        onPreviewVoice = { sid, lang -> viewModel.previewVoice(sid, lang) }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CharacterScreenContent(
+    initialName: String,
+    initialPrompt: String,
+    initialVoiceId: Int,
+    initialVoiceLang: String,
+    initialSpeed: Float,
+    initialPitch: Float,
+    initialUseBlend: Boolean,
+    initialVoiceA: Int,
+    initialVoiceB: Int,
+    initialBlendRatio: Float,
+    onBackClick: () -> Unit,
+    onResetClick: () -> Unit,
+    onSaveClick: (String, String, Int, String, Float, Float, Boolean, Int, Int, Float) -> Unit,
+    onPreviewVoice: (Int, String) -> Unit
+) {
     var name by remember(initialName) { mutableStateOf(initialName) }
     var promptBody by remember(initialPrompt) { mutableStateOf(initialPrompt) }
     var voiceId by remember(initialVoiceId) { mutableIntStateOf(initialVoiceId) }
     var voiceLang by remember(initialVoiceLang) { mutableStateOf(initialVoiceLang) }
     var speed by remember(initialSpeed) { mutableFloatStateOf(initialSpeed) }
+    var pitch by remember(initialPitch) { mutableFloatStateOf(initialPitch) }
+    
+    var useBlend by remember(initialUseBlend) { mutableStateOf(initialUseBlend) }
+    var voiceA by remember(initialVoiceA) { mutableIntStateOf(initialVoiceA) }
+    var voiceB by remember(initialVoiceB) { mutableIntStateOf(initialVoiceB) }
+    var blendRatio by remember(initialBlendRatio) { mutableFloatStateOf(initialBlendRatio) }
 
     val kokoroLangs = listOf(
         "English (US)" to "en-us",
@@ -109,7 +158,7 @@ fun CharacterScreen(viewModel: MainViewModel) {
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = { viewModel.setScreen(MainViewModel.Screen.VRM) }) {
+                    IconButton(onClick = onBackClick) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
                     }
                 },
@@ -152,18 +201,20 @@ fun CharacterScreen(viewModel: MainViewModel) {
                 
                 ExposedDropdownMenuBox(
                     expanded = expanded,
-                    onExpandedChange = { expanded = it }
+                    onExpandedChange = { if (!useBlend) expanded = it }
                 ) {
                     OutlinedTextField(
-                        value = currentVoiceName,
+                        value = if (useBlend) "--- Lab Hybrid ---" else currentVoiceName,
                         onValueChange = {},
                         readOnly = true,
-                        label = { Text("Select Voice", color = Color(0xFF6699FF)) },
+                        enabled = !useBlend,
+                        textStyle = androidx.compose.ui.text.TextStyle(color = Color.White),
+                        label = { Text("Select Voice", color = if (useBlend) Color.Gray else Color(0xFF6699FF)) },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
                         modifier = Modifier.fillMaxWidth().menuAnchor(),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
+                            unfocusedTextColor = if (useBlend) Color.Gray else Color.White,
                             focusedBorderColor = Color(0xFF6699FF),
                             unfocusedBorderColor = Color(0xFF333344)
                         )
@@ -173,7 +224,7 @@ fun CharacterScreen(viewModel: MainViewModel) {
                         onDismissRequest = { expanded = false },
                         modifier = Modifier.background(Color(0xFF1A1A2E))
                     ) {
-                        voices.forEach { (name, sid) ->
+                        voices.forEach { (vName, sid) ->
                             DropdownMenuItem(
                                 text = {
                                     Row(
@@ -181,10 +232,10 @@ fun CharacterScreen(viewModel: MainViewModel) {
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text(name, color = Color.White)
+                                        Text(vName, color = Color.White)
                                         IconButton(
                                             onClick = {
-                                                viewModel.previewVoice(sid, voiceLang)
+                                                onPreviewVoice(sid, voiceLang)
                                             },
                                             modifier = Modifier.size(24.dp)
                                         ) {
@@ -220,6 +271,7 @@ fun CharacterScreen(viewModel: MainViewModel) {
                         value = currentLangName,
                         onValueChange = {},
                         readOnly = true,
+                        textStyle = androidx.compose.ui.text.TextStyle(color = Color.White),
                         label = { Text("Select Language", color = Color(0xFF6699FF)) },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
                         modifier = Modifier.fillMaxWidth().menuAnchor(),
@@ -235,9 +287,9 @@ fun CharacterScreen(viewModel: MainViewModel) {
                         onDismissRequest = { expanded = false },
                         modifier = Modifier.background(Color(0xFF1A1A2E))
                     ) {
-                        kokoroLangs.forEach { (name, code) ->
+                        kokoroLangs.forEach { (lName, code) ->
                             DropdownMenuItem(
-                                text = { Text(name, color = Color.White) },
+                                text = { Text(lName, color = Color.White) },
                                 onClick = {
                                     voiceLang = code
                                     expanded = false
@@ -248,29 +300,111 @@ fun CharacterScreen(viewModel: MainViewModel) {
                 }
             }
 
-            // Speed Section
-            SettingsSection(title = "TTS Speed") {
-                Column {
+            // Voice Lab Section
+            SettingsSection(title = "Voice Lab (Hybrid Blending)") {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Flow / Speed", color = Color.White, fontSize = 14.sp)
-                        Text("${"%.1f".format(speed)}x", color = Color(0xFF6699FF), fontWeight = FontWeight.Bold)
-                    }
-                    Slider(
-                        value = speed,
-                        onValueChange = { speed = it },
-                        valueRange = 0.8f..1.5f,
-                        steps = 7,
-                        colors = SliderDefaults.colors(
-                            thumbColor = Color(0xFF6699FF),
-                            activeTrackColor = Color(0xFF6699FF),
-                            inactiveTrackColor = Color(0xFF333344)
+                        Column {
+                            Text("Enable Voice Blending", color = Color.White, fontSize = 14.sp)
+                            Text("Mixes two voices into one", color = Color.Gray, fontSize = 11.sp)
+                        }
+                        Switch(
+                            checked = useBlend,
+                            onCheckedChange = { useBlend = it },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF6699FF))
                         )
-                    )
+                    }
+
+                    if (useBlend) {
+                        // Voice A
+                        VoiceSelector("Primary Voice (A)", voices, voiceA) { voiceA = it }
+                        
+                        // Voice B
+                        VoiceSelector("Secondary Voice (B)", voices, voiceB) { voiceB = it }
+
+                        // Ratio
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Blend Ratio (A vs B)", color = Color.White, fontSize = 13.sp)
+                                Text("${(blendRatio * 100).toInt()}% / ${(100 - (blendRatio * 100)).toInt()}%", color = Color(0xFFB0C8FF))
+                            }
+                            Slider(
+                                value = blendRatio,
+                                onValueChange = { blendRatio = it },
+                                valueRange = 0f..1f,
+                                colors = SliderDefaults.colors(thumbColor = Color(0xFFB0C8FF))
+                            )
+                        }
+
+                        Button(
+                            onClick = { onPreviewVoice(0, voiceLang) },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.1f))
+                        ) {
+                            Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(16.dp), tint = Color.White)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Preview Hybrid result", color = Color.White)
+                        }
+                    }
+                }
+            }
+
+            // Speed Section
+            SettingsSection(title = "TTS Voice Tuning") {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    // Speed Slider
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Flow / Speed", color = Color.White, fontSize = 14.sp)
+                            Text("${"%.1f".format(speed)}x", color = Color(0xFF6699FF), fontWeight = FontWeight.Bold)
+                        }
+                        Slider(
+                            value = speed,
+                            onValueChange = { speed = it },
+                            valueRange = 0.8f..1.5f,
+                            steps = 7,
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color(0xFF6699FF),
+                                activeTrackColor = Color(0xFF6699FF),
+                                inactiveTrackColor = Color(0xFF333344)
+                            )
+                        )
+                    }
+
+                    // Pitch Slider
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Tone / Pitch", color = Color.White, fontSize = 14.sp)
+                            Text("${"%.2f".format(pitch)}x", color = Color(0xFFFF6666), fontWeight = FontWeight.Bold)
+                        }
+                        Slider(
+                            value = pitch,
+                            onValueChange = { pitch = it },
+                            valueRange = 0.5f..1.5f,
+                            steps = 20,
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color(0xFFFF6666),
+                                activeTrackColor = Color(0xFFFF6666),
+                                inactiveTrackColor = Color(0xFF333344)
+                            )
+                        )
+                    }
+
                     Text(
-                        "Tip: Higher speed (1.1x - 1.2x) sounds more natural for this model.",
+                        "Tip: Increase pitch (1.2x - 1.3x) for an anime-style cute voice.",
                         color = Color.Gray,
                         fontSize = 11.sp,
                         fontStyle = FontStyle.Italic
@@ -322,7 +456,7 @@ fun CharacterScreen(viewModel: MainViewModel) {
             ) {
                 // Reset Button
                 Button(
-                    onClick = { viewModel.resetCharacterSettings() },
+                    onClick = onResetClick,
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color.White.copy(alpha = 0.1f),
@@ -337,7 +471,7 @@ fun CharacterScreen(viewModel: MainViewModel) {
 
                 // Save Button
                 Button(
-                    onClick = { viewModel.saveCharacterSettings(name, promptBody, voiceId, voiceLang, speed) },
+                    onClick = { onSaveClick(name, promptBody, voiceId, voiceLang, speed, pitch, useBlend, voiceA, voiceB, blendRatio) },
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color(0xFF6699FF),
@@ -352,6 +486,67 @@ fun CharacterScreen(viewModel: MainViewModel) {
             }
             
             Spacer(Modifier.height(40.dp))
+        }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun PreviewCharacter() {
+    MaterialTheme {
+        CharacterScreenContent(
+            initialName = "Aria",
+            initialPrompt = "Be sarcastic.",
+            initialVoiceId = 2,
+            initialVoiceLang = "en-us",
+            initialSpeed = 1.1f,
+            initialPitch = 1.0f,
+            initialUseBlend = false,
+            initialVoiceA = 37,
+            initialVoiceB = 2,
+            initialBlendRatio = 0.6f,
+            onBackClick = {},
+            onResetClick = {},
+            onSaveClick = { _, _, _, _, _, _, _, _, _, _ -> },
+            onPreviewVoice = { _, _ -> }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun VoiceSelector(label: String, voices: List<Pair<String, Int>>, current: Int, onSelect: (Int) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val name = voices.find { it.second == current }?.first ?: "ID $current"
+    
+    Column {
+        Text(label, color = Color.Gray, fontSize = 11.sp, modifier = Modifier.padding(bottom = 4.dp))
+        ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+            OutlinedTextField(
+                value = name,
+                onValueChange = {},
+                readOnly = true,
+                modifier = Modifier.fillMaxWidth().menuAnchor(),
+                textStyle = MaterialTheme.typography.bodySmall.copy(color = Color.White),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
+                    focusedBorderColor = Color(0xFF6699FF),
+                    unfocusedBorderColor = Color(0xFF333344)
+                )
+            )
+            ExposedDropdownMenu(
+                expanded = expanded, 
+                onDismissRequest = { expanded = false },
+                modifier = Modifier.background(Color(0xFF1A1A2E))
+            ) {
+                voices.forEach { (vName, sid) ->
+                    DropdownMenuItem(
+                        text = { Text(vName, fontSize = 12.sp, color = Color.White) },
+                        onClick = { onSelect(sid); expanded = false }
+                    )
+                }
+            }
         }
     }
 }

@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ttt.companion.llm.DownloadState
 import com.ttt.companion.llm.SetupPhase
@@ -16,7 +17,17 @@ import com.ttt.companion.llm.SetupPhase
 @Composable
 fun SetupScreen(viewModel: MainViewModel) {
     val downloadState by viewModel.downloadState.collectAsStateWithLifecycle()
+    SetupScreenContent(
+        downloadState = downloadState,
+        onDownloadClick = { viewModel.startDownload() }
+    )
+}
 
+@Composable
+fun SetupScreenContent(
+    downloadState: DownloadState,
+    onDownloadClick: () -> Unit
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -42,7 +53,7 @@ fun SetupScreen(viewModel: MainViewModel) {
 
         when (val state = downloadState) {
             is DownloadState.Idle -> {
-                Button(onClick = { viewModel.startDownload() }) {
+                Button(onClick = onDownloadClick) {
                     Text("Download All Models")
                 }
             }
@@ -81,13 +92,41 @@ fun SetupScreen(viewModel: MainViewModel) {
                     textAlign = TextAlign.Center
                 )
                 Spacer(Modifier.height(16.dp))
-                Button(onClick = { viewModel.startDownload() }) {
+                Button(onClick = onDownloadClick) {
                     Text("Retry")
                 }
             }
 
             else -> {} // Done / AlreadyHave handled by MainActivity
         }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun PreviewSetupIdle() {
+    MaterialTheme {
+        SetupScreenContent(
+            downloadState = DownloadState.Idle,
+            onDownloadClick = {}
+        )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun PreviewSetupDownloading() {
+    MaterialTheme {
+        SetupScreenContent(
+            downloadState = DownloadState.Downloading(
+                phase = SetupPhase.LLM,
+                label = "Downloading LLM...",
+                progressPct = 45,
+                mbReceived = 1200f,
+                mbTotal = 2700f
+            ),
+            onDownloadClick = {}
+        )
     }
 }
 

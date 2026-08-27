@@ -39,6 +39,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _vrmUrl = MutableStateFlow<String?>(null)
     val vrmUrl = _vrmUrl.asStateFlow()
 
+    private val _idleAnimUrl = MutableStateFlow<String?>(null)
+    val idleAnimUrl = _idleAnimUrl.asStateFlow()
+
     private val _vrmActive = MutableStateFlow(true)
     val vrmActive = _vrmActive.asStateFlow()
 
@@ -89,6 +92,43 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .getFloat("char_tts_speed", 1.1f)
     )
     val ttsSpeed = _ttsSpeed.asStateFlow()
+
+    private val _ttsPitch = MutableStateFlow(
+        app.getSharedPreferences("character_prefs", Application.MODE_PRIVATE)
+            .getFloat("char_tts_pitch", 1.0f)
+    )
+    val ttsPitch = _ttsPitch.asStateFlow()
+
+    private val _customContextSize = MutableStateFlow(
+        app.getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
+            .getInt("llm_context_size", 4096)
+    )
+    val customContextSize = _customContextSize.asStateFlow()
+
+    // --- Voice Lab (Blending) ---
+    private val _useBlending = MutableStateFlow(
+        app.getSharedPreferences("character_prefs", Application.MODE_PRIVATE)
+            .getBoolean("use_blending", false)
+    )
+    val useBlending = _useBlending.asStateFlow()
+
+    private val _voiceA = MutableStateFlow(
+        app.getSharedPreferences("character_prefs", Application.MODE_PRIVATE)
+            .getInt("blend_voice_a", 37) // Alpha
+    )
+    val voiceA = _voiceA.asStateFlow()
+
+    private val _voiceB = MutableStateFlow(
+        app.getSharedPreferences("character_prefs", Application.MODE_PRIVATE)
+            .getInt("blend_voice_b", 2) // Bella
+    )
+    val voiceB = _voiceB.asStateFlow()
+
+    private val _blendRatio = MutableStateFlow(
+        app.getSharedPreferences("character_prefs", Application.MODE_PRIVATE)
+            .getFloat("blend_ratio", 0.6f)
+    )
+    val blendRatio = _blendRatio.asStateFlow()
 
     // Build the full system prompt dynamically.
     private var fullSystemPrompt: String = buildFullPrompt(_customName.value, _customPrompt.value)
@@ -151,6 +191,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             Log.d(TAG, "Starting VRM load sequence...")
             val url = VrmAssetHelper.ensureVrm(getApplication(), character.id)
             _vrmUrl.value = url
+
+            // Also load idle animation
+            val animUrl = VrmAssetHelper.ensureAnim(getApplication(), "idle")
+            _idleAnimUrl.value = animUrl
         }
     }
 
@@ -204,7 +248,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 systemPrompt = buildFullPrompt(_customName.value, _customPrompt.value)
             )
             
-            val llmResult = llm.loadModel(activeCharacter)
+            val llmResult = llm.loadModel(activeCharacter, contextSize = _customContextSize.value)
             withContext(Dispatchers.Main) { _modelState.value = llmResult }
             if (llmResult is LlmService.LoadState.Error) return@launch
 
@@ -213,8 +257,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val sttResult = sttService.init()
             withContext(Dispatchers.Main) { _sttReady.value = sttResult is SttService.LoadState.Ready }
 
-            Log.d(TAG, "Initializing TTS with lang: ${_customVoiceLang.value}...")
-            val ttsResult = ttsService.init(character.voiceSamplePath, lang = _customVoiceLang.value)
+            Log.d(TAG, "Initializing TTS with lang: ${_customVoiceLang.value} (blend=${_useBlending.value})...")
+            
+            val blendConfig = if (_useBlending.value) {
+                TtsService.BlendConfig(
+                    voiceASid = _voiceA.value,
+                    voiceBSid = _voiceB.value,
+                    ratio = _blendRatio.value,
+                    customSid = 0 // Overwrite first slot in temp file
+                )
+            } else null
+
+            val ttsResult = ttsService.init(
+                character.voiceSamplePath, 
+                lang = _customVoiceLang.value,
+                blend = blendConfig
+            )
             withContext(Dispatchers.Main) { _ttsReady.value = ttsResult is TtsService.LoadState.Ready }
         }
     }
@@ -238,7 +296,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // ── Chat ──────────────────────────────────────────────────────────────────
 
     fun sendMessage(userText: String) {
-        if (userText.isBlank() || _isLoading.value) return
+        if (userText.isBlank() || _isLoading.value || _isSpeaking.value) return
         val userMsg = ChatMessage(role = "user", content = userText.trim())
         val updatedHistory = _messages.value + userMsg
         _messages.value = updatedHistory
@@ -253,6 +311,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 val response = parseResult.cleanedResponse
                 val assistantMsg = ChatMessage(role = "assistant", content = response)
                 _messages.value = updatedHistory + assistantMsg
+                _isLoading.value = false
 
                 if (_ttsReady.value) {
                     _audioState.value = AudioState.Speaking
@@ -263,10 +322,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                             .replace(Regex("[\\\"'“”]"), "") // Remove quotes
                             .replace(Regex("([.!?])"), "$1 ") // Ensure space after punctuation
                         
+                        val activeVoiceId = if (_useBlending.value) 0 else _customVoiceId.value
+
                         ttsService.speak(
                             text = cleanResponse, 
-                            voiceId = _customVoiceId.value,
-                            speed = _ttsSpeed.value
+                            voiceId = activeVoiceId,
+                            speed = _ttsSpeed.value,
+                            pitch = _ttsPitch.value
                         )
                     } finally {
                         _isSpeaking.value = false
@@ -294,7 +356,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     "zh" -> "你好，你觉得我的新声音怎么样？"
                     else -> "Hello, how does my new voice sound to you?"
                 }
-                ttsService.speak(phrase, voiceId = voiceId, speed = _ttsSpeed.value)
+                
+                val activeVoiceId = if (_useBlending.value && voiceId == 0) 0 else voiceId
+                
+                ttsService.speak(phrase, voiceId = activeVoiceId, speed = _ttsSpeed.value, pitch = _ttsPitch.value)
             } finally {
                 _isSpeaking.value = false
                 _audioState.value = AudioState.Idle
@@ -390,12 +455,30 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         return mandatoryLine + "\n" + body + "\n\n" + com.ttt.companion.tools.ToolDefinitions.SYSTEM_PROMPT_ADDITION
     }
 
-    fun saveCharacterSettings(name: String, promptBody: String, voiceId: Int, voiceLang: String, speed: Float) {
+    fun saveCharacterSettings(
+        name: String, 
+        promptBody: String, 
+        voiceId: Int, 
+        voiceLang: String, 
+        speed: Float, 
+        pitch: Float,
+        useBlend: Boolean = false,
+        vA: Int = 0,
+        vB: Int = 0,
+        ratio: Float = 0.5f
+    ) {
         _customName.value = name
         _customPrompt.value = promptBody
         _customVoiceId.value = voiceId
         _customVoiceLang.value = voiceLang
         _ttsSpeed.value = speed
+        _ttsPitch.value = pitch
+        
+        _useBlending.value = useBlend
+        _voiceA.value = vA
+        _voiceB.value = vB
+        _blendRatio.value = ratio
+        
         fullSystemPrompt = buildFullPrompt(name, promptBody)
 
         getApplication<Application>().getSharedPreferences("character_prefs", Application.MODE_PRIVATE)
@@ -405,6 +488,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .putInt("char_voice_id", voiceId)
             .putString("char_voice_lang", voiceLang)
             .putFloat("char_tts_speed", speed)
+            .putFloat("char_tts_pitch", pitch)
+            .putBoolean("use_blending", useBlend)
+            .putInt("blend_voice_a", vA)
+            .putInt("blend_voice_b", vB)
+            .putFloat("blend_ratio", ratio)
             .apply()
         
         restartLlm()
@@ -414,7 +502,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val defaultChar = defaultCharacter(getApplication<Application>().filesDir)
         val defaultBody = getPromptBody(defaultChar.systemPrompt)
         
-        saveCharacterSettings(defaultChar.name, defaultBody, defaultChar.ttsVoiceId, defaultChar.ttsLang, 1.1f)
+        saveCharacterSettings(defaultChar.name, defaultBody, defaultChar.ttsVoiceId, defaultChar.ttsLang, 1.1f, 1.0f)
     }
 
     // ── Service Management ───────────────────────────────────────────────────
@@ -440,6 +528,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _vrmLoading.value = true
         vrmLoadedOnce = false
         startVrm()
+    }
+
+    fun saveLlmSettings(contextSize: Int) {
+        _customContextSize.value = contextSize
+        getApplication<Application>().getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
+            .edit()
+            .putInt("llm_context_size", contextSize)
+            .apply()
+        
+        restartLlm()
     }
 
     // ── Camera Management ────────────────────────────────────────────────────

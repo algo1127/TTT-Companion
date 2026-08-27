@@ -39,4 +39,29 @@ object VrmAssetHelper {
 
             outFile.absolutePath
         }
+
+    /**
+     * Ensures the VRMA animation file is in filesDir.
+     */
+    suspend fun ensureAnim(context: Context, animName: String): String? =
+        withContext(Dispatchers.IO) {
+            val assetPath = "anim/$animName.vrma"
+            val outPath   = "anim/$animName.glb"
+            val outFile   = File(context.filesDir, outPath)
+
+            Log.i(TAG, "Refreshing animation asset from APK: $animName...")
+            outFile.parentFile?.mkdirs()
+            try {
+                context.assets.open(assetPath).use { input ->
+                    outFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                Log.i(TAG, "Successfully refreshed Anim: ${outFile.absolutePath}")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to refresh Anim: $animName", e)
+                if (!outFile.exists()) return@withContext null
+            }
+            outFile.absolutePath
+        }
 }

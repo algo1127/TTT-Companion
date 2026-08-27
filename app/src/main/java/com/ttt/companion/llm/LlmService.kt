@@ -19,6 +19,15 @@ import java.io.File
 
 class LlmService(context: Context) {
 
+    companion object {
+        const val RESPONSE_RESERVE = 512
+        // Heuristic: 1 token is roughly 4 characters
+        private const val CHARS_PER_TOKEN = 4
+    }
+
+    private var activeContextSize: Int = 2048
+    private val maxPromptChars: Int get() = (activeContextSize - RESPONSE_RESERVE) * CHARS_PER_TOKEN
+
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     // Using replay = 1 to ensure we don't miss the Loaded event if it happens very fast
@@ -38,7 +47,7 @@ class LlmService(context: Context) {
         data class Error(val message: String) : LoadState()
     }
 
-    suspend fun loadModel(profile: CharacterProfile): LoadState {
+    suspend fun loadModel(profile: CharacterProfile, contextSize: Int = 2048): LoadState {
         Log.d("LlmService", "Attempting to load model from: ${profile.modelPath}")
         if (loadedModelPath == profile.modelPath) {
             Log.d("LlmService", "Model already loaded at this path.")
@@ -87,12 +96,13 @@ class LlmService(context: Context) {
                 }
             }
 
-            Log.d("LlmService", "Calling helper.load with URI: $modelUri")
+            Log.d("LlmService", "Calling helper.load with URI: $modelUri (ctx=$contextSize)")
+            activeContextSize = contextSize
             withContext(Dispatchers.IO) {
-                // We use a context length of 2048 to reduce RAM pressure on startup
+                // Total context length assigned to the engine
                 helper.load(
                     path          = modelUri,
-                    contextLength = 2048
+                    contextLength = contextSize
                 ) { /* callback is also called but we use flow */ }
             }
 
@@ -124,12 +134,18 @@ class LlmService(context: Context) {
             throw Exception("Model was not loaded yet")
         }
 
-        val prompt = buildString {
+        // --- Context Overflow Protection ---
+        // We use character-based heuristic to ensure the prompt doesn't exceed 
+        // the available space in the context window.
+        
+        var historyToInclude = history.takeLast(10)
+        
+        fun buildPrompt(hist: List<ChatMessage>): String = buildString {
             append("<|im_start|>system\n")
             append(systemPrompt.trim())
             append("\n<|im_end|>\n")
 
-            history.takeLast(10).forEach { msg ->
+            hist.forEach { msg ->
                 val role = if (msg.role == "user") "user" else "assistant"
                 append("<|im_start|>$role\n")
                 append(msg.content.trim())
@@ -139,7 +155,23 @@ class LlmService(context: Context) {
             append("<|im_start|>assistant\n")
         }
 
-        Log.d("LlmService", "Starting prediction with prompt: $prompt")
+        var prompt = buildPrompt(historyToInclude)
+        
+        // If too long, aggressively trim history messages
+        while (prompt.length > maxPromptChars && historyToInclude.size > 1) {
+            historyToInclude = historyToInclude.drop(1)
+            prompt = buildPrompt(historyToInclude)
+            Log.d("LlmService", "Trimming history to prevent overflow. Remaining: ${historyToInclude.size}")
+        }
+
+        // Final safety check: if still too long (e.g. system prompt is massive), 
+        // we must truncate the prompt itself or it WILL crash the native engine.
+        if (prompt.length > maxPromptChars) {
+            Log.w("LlmService", "Prompt still exceeds safety limit after trimming history. Hard truncating.")
+            prompt = prompt.takeLast(maxPromptChars)
+        }
+
+        Log.d("LlmService", "Starting prediction with prompt length: ${prompt.length} chars")
         val result = StringBuilder()
 
         try {

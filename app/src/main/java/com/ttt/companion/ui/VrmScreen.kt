@@ -19,6 +19,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -33,24 +34,75 @@ import kotlinx.coroutines.launch
 // Translucent black for the overlay panels
 private val PANEL_BG = Color(0xCC000000)
 
-@SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun VrmScreen(viewModel: MainViewModel) {
     val messages     by viewModel.messages.collectAsStateWithLifecycle()
     val isLoading    by viewModel.isLoading.collectAsStateWithLifecycle()
     val modelState   by viewModel.modelState.collectAsStateWithLifecycle()
     val vrmUrl       by viewModel.vrmUrl.collectAsStateWithLifecycle()
+    val idleAnimUrl  by viewModel.idleAnimUrl.collectAsStateWithLifecycle()
     val vrmActive    by viewModel.vrmActive.collectAsStateWithLifecycle()
     val vrmLoading   by viewModel.vrmLoading.collectAsStateWithLifecycle()
     val isCameraLocked by viewModel.isCameraLocked.collectAsStateWithLifecycle()
     val characterName by viewModel.customName.collectAsStateWithLifecycle()
+    val isSpeaking   by viewModel.isSpeaking.collectAsStateWithLifecycle()
+    val audioState   by viewModel.audioState.collectAsStateWithLifecycle()
+    val cameraData   = remember { viewModel.loadCameraPosition() }
 
+    VrmScreenContent(
+        messages = messages,
+        isLoading = isLoading,
+        modelState = modelState,
+        vrmUrl = vrmUrl,
+        idleAnimUrl = idleAnimUrl,
+        vrmActive = vrmActive,
+        vrmLoading = vrmLoading,
+        isCameraLocked = isCameraLocked,
+        characterName = characterName,
+        isSpeaking = isSpeaking,
+        audioState = audioState,
+        cameraData = cameraData,
+        onSendMessage = { viewModel.sendMessage(it) },
+        onToggleMic = { viewModel.toggleMic() },
+        onToggleCameraLock = { viewModel.toggleCameraLock() },
+        onVrmLoaded = { viewModel.onVrmLoaded() },
+        onVrmError = { viewModel.onVrmError(it) },
+        onCameraMoved = { px, py, pz, tx, ty, tz -> viewModel.saveCameraPosition(px, py, pz, tx, ty, tz) },
+        onSetScreen = { viewModel.setScreen(it) },
+        onStartVrm = { viewModel.startVrm() },
+        onSkipVrm = { viewModel.skipVrm() }
+    )
+}
+
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+fun VrmScreenContent(
+    messages: List<com.ttt.companion.model.ChatMessage>,
+    isLoading: Boolean,
+    modelState: LlmService.LoadState,
+    vrmUrl: String?,
+    idleAnimUrl: String?,
+    vrmActive: Boolean,
+    vrmLoading: Boolean,
+    isCameraLocked: Boolean,
+    characterName: String,
+    isSpeaking: Boolean,
+    audioState: MainViewModel.AudioState,
+    cameraData: FloatArray?,
+    onSendMessage: (String) -> Unit,
+    onToggleMic: () -> Unit,
+    onToggleCameraLock: () -> Unit,
+    onVrmLoaded: () -> Unit,
+    onVrmError: (String) -> Unit,
+    onCameraMoved: (Float, Float, Float, Float, Float, Float) -> Unit,
+    onSetScreen: (MainViewModel.Screen) -> Unit,
+    onStartVrm: () -> Unit,
+    onSkipVrm: () -> Unit
+) {
     // UI State
     var expanded     by remember { mutableStateOf(false) }
     var inputText    by remember { mutableStateOf("") }
     val listState    = rememberLazyListState()
-    val isSpeaking   by viewModel.isSpeaking.collectAsStateWithLifecycle()
-    val cameraData   = remember { viewModel.loadCameraPosition() }
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -67,7 +119,7 @@ fun VrmScreen(viewModel: MainViewModel) {
 
     // Load VRM on entry
     LaunchedEffect(Unit) {
-        viewModel.startVrm()
+        onStartVrm()
     }
 
     // Auto-scroll messages
@@ -107,7 +159,6 @@ fun VrmScreen(viewModel: MainViewModel) {
                             onClick = { 
                                 scope.launch { 
                                     drawerState.close()
-                                    // Placeholder for navigation
                                 }
                             },
                             icon = { Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF6699FF)) },
@@ -116,12 +167,12 @@ fun VrmScreen(viewModel: MainViewModel) {
                         )
 
                         NavigationDrawerItem(
-                            label = { Text(viewModel.customName.collectAsState().value.uppercase(), color = Color.White, fontWeight = FontWeight.Medium) },
+                            label = { Text(characterName.uppercase(), color = Color.White, fontWeight = FontWeight.Medium) },
                             selected = false,
                             onClick = { 
                                 scope.launch { 
                                     drawerState.close()
-                                    viewModel.setScreen(MainViewModel.Screen.CHARACTER)
+                                    onSetScreen(MainViewModel.Screen.CHARACTER)
                                 }
                             },
                             icon = { Icon(Icons.Default.Face, contentDescription = null, tint = Color(0xFFFF6666)) },
@@ -135,7 +186,7 @@ fun VrmScreen(viewModel: MainViewModel) {
                     onClick = { 
                         scope.launch { 
                             drawerState.close()
-                            viewModel.setScreen(MainViewModel.Screen.SETTINGS)
+                            onSetScreen(MainViewModel.Screen.SETTINGS)
                         } 
                     },
                     icon = { Icon(Icons.Default.Settings, contentDescription = null, tint = Color.LightGray) },
@@ -151,17 +202,14 @@ fun VrmScreen(viewModel: MainViewModel) {
             if (vrmActive) {
                 VrmSceneView(
                     modelPath = vrmUrl,
+                    modifier = Modifier.fillMaxSize(),
+                    idleAnimPath = idleAnimUrl,
                     isSpeaking = isSpeaking,
                     isLocked = isCameraLocked,
                     initialCameraData = cameraData,
-                    modifier = Modifier.fillMaxSize(),
-                    onLoaded = {
-                        viewModel.onVrmLoaded()
-                    },
-                    onError = { msg -> viewModel.onVrmError(msg) },
-                    onCameraMoved = { px, py, pz, tx, ty, tz ->
-                        viewModel.saveCameraPosition(px, py, pz, tx, ty, tz)
-                    }
+                    onLoaded = onVrmLoaded,
+                    onError = onVrmError,
+                    onCameraMoved = onCameraMoved
                 )
             }
 
@@ -172,12 +220,11 @@ fun VrmScreen(viewModel: MainViewModel) {
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(color = Color(0xFF6699FF))
                         Spacer(Modifier.height(16.dp))
                         Text("Loading 3D Avatar...", color = Color.White, fontSize = 14.sp)
                         Spacer(Modifier.height(24.dp))
                         Button(
-                            onClick = { viewModel.skipVrm() },
+                            onClick = onSkipVrm,
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF333344))
                         ) {
                             Text("Skip VRM & Start AI", color = Color.White)
@@ -266,8 +313,8 @@ fun VrmScreen(viewModel: MainViewModel) {
                                 )
                             }
                         }
-                        if (isSpeaking && !isLoading) {
-                                item {
+                        if (audioState is MainViewModel.AudioState.Speaking) {
+                            item {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(
                                         Icons.AutoMirrored.Filled.VolumeUp,
@@ -284,6 +331,28 @@ fun VrmScreen(viewModel: MainViewModel) {
                                         modifier = Modifier.alpha(pulseAlpha)
                                     )
                                 }
+                            }
+                        }
+                        if (audioState is MainViewModel.AudioState.Recording) {
+                            item {
+                                Text(
+                                    text = "Listening...",
+                                    color = Color(0xFFFF4444),
+                                    fontSize = 12.sp,
+                                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                                    modifier = Modifier.alpha(pulseAlpha)
+                                )
+                            }
+                        }
+                        if (audioState is MainViewModel.AudioState.Transcribing) {
+                            item {
+                                Text(
+                                    text = "Transcribing...",
+                                    color = Color(0xFFB0C8FF),
+                                    fontSize = 12.sp,
+                                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                                    modifier = Modifier.alpha(pulseAlpha)
+                                )
                             }
                         }
                     }
@@ -324,12 +393,12 @@ fun VrmScreen(viewModel: MainViewModel) {
                     IconButton(
                         onClick = {
                             if (isSpeaking) {
-                                viewModel.toggleMic()
+                                onToggleMic()
                             } else if (inputText.isNotBlank()) {
-                                viewModel.sendMessage(inputText)
+                                onSendMessage(inputText)
                                 inputText = ""
                             } else {
-                                viewModel.toggleMic()
+                                onToggleMic()
                             }
                         },
                         enabled = ready
@@ -353,7 +422,7 @@ fun VrmScreen(viewModel: MainViewModel) {
 
                     // Camera Lock button
                     IconButton(
-                        onClick = { viewModel.toggleCameraLock() },
+                        onClick = onToggleCameraLock,
                         enabled = ready
                     ) {
                         Icon(
@@ -368,5 +437,38 @@ fun VrmScreen(viewModel: MainViewModel) {
                 Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
             }
         }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun PreviewVrmScreen() {
+    MaterialTheme {
+        VrmScreenContent(
+            messages = listOf(
+                com.ttt.companion.model.ChatMessage("user", "Hello!"),
+                com.ttt.companion.model.ChatMessage("assistant", "Hi there! I am your AI companion.")
+            ),
+            isLoading = false,
+            modelState = LlmService.LoadState.Ready,
+            vrmUrl = null,
+            idleAnimUrl = null,
+            vrmActive = true,
+            vrmLoading = false,
+            isCameraLocked = false,
+            characterName = "Aria",
+            isSpeaking = false,
+            audioState = MainViewModel.AudioState.Idle,
+            cameraData = null,
+            onSendMessage = {},
+            onToggleMic = {},
+            onToggleCameraLock = {},
+            onVrmLoaded = {},
+            onVrmError = {},
+            onCameraMoved = { _, _, _, _, _, _ -> },
+            onSetScreen = {},
+            onStartVrm = {},
+            onSkipVrm = {}
+        )
     }
 }
