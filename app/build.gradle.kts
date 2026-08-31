@@ -60,6 +60,7 @@ dependencies {
     implementation(libs.androidx.room3.common.jvm)
     implementation(libs.commons.compress)
     implementation(libs.sceneview)
+    implementation(libs.sceneview.compose)
 
     // Lifecycle
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")

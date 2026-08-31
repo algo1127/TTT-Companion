@@ -19,6 +19,7 @@ import com.ttt.companion.ui.TestScreen
 import com.ttt.companion.ui.VrmScreen
 import com.ttt.companion.ui.SettingsScreen
 import com.ttt.companion.ui.CharacterScreen
+import com.google.android.filament.utils.Utils
 
 class MainActivity : ComponentActivity() {
 

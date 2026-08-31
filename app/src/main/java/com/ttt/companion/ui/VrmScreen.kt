@@ -47,6 +47,7 @@ fun VrmScreen(viewModel: MainViewModel) {
     val characterName by viewModel.customName.collectAsStateWithLifecycle()
     val isSpeaking   by viewModel.isSpeaking.collectAsStateWithLifecycle()
     val audioState   by viewModel.audioState.collectAsStateWithLifecycle()
+    val modelInstance by viewModel.modelInstance.collectAsStateWithLifecycle()
     val cameraData   = remember { viewModel.loadCameraPosition() }
 
     VrmScreenContent(
@@ -62,6 +63,9 @@ fun VrmScreen(viewModel: MainViewModel) {
         isSpeaking = isSpeaking,
         audioState = audioState,
         cameraData = cameraData,
+        engine = viewModel.engine,
+        modelLoader = viewModel.modelLoader,
+        modelInstance = modelInstance,
         onSendMessage = { viewModel.sendMessage(it) },
         onToggleMic = { viewModel.toggleMic() },
         onToggleCameraLock = { viewModel.toggleCameraLock() },
@@ -89,6 +93,9 @@ fun VrmScreenContent(
     isSpeaking: Boolean,
     audioState: MainViewModel.AudioState,
     cameraData: FloatArray?,
+    engine: com.google.android.filament.Engine,
+    modelLoader: io.github.sceneview.loaders.ModelLoader,
+    modelInstance: io.github.sceneview.model.ModelInstance?,
     onSendMessage: (String) -> Unit,
     onToggleMic: () -> Unit,
     onToggleCameraLock: () -> Unit,
@@ -207,6 +214,9 @@ fun VrmScreenContent(
                     isSpeaking = isSpeaking,
                     isLocked = isCameraLocked,
                     initialCameraData = cameraData,
+                    engine = engine,
+                    modelLoader = modelLoader,
+                    modelInstance = modelInstance,
                     onLoaded = onVrmLoaded,
                     onError = onVrmError,
                     onCameraMoved = onCameraMoved
@@ -443,32 +453,6 @@ fun VrmScreenContent(
 @Preview(showBackground = true)
 @Composable
 fun PreviewVrmScreen() {
-    MaterialTheme {
-        VrmScreenContent(
-            messages = listOf(
-                com.ttt.companion.model.ChatMessage("user", "Hello!"),
-                com.ttt.companion.model.ChatMessage("assistant", "Hi there! I am your AI companion.")
-            ),
-            isLoading = false,
-            modelState = LlmService.LoadState.Ready,
-            vrmUrl = null,
-            idleAnimUrl = null,
-            vrmActive = true,
-            vrmLoading = false,
-            isCameraLocked = false,
-            characterName = "Aria",
-            isSpeaking = false,
-            audioState = MainViewModel.AudioState.Idle,
-            cameraData = null,
-            onSendMessage = {},
-            onToggleMic = {},
-            onToggleCameraLock = {},
-            onVrmLoaded = {},
-            onVrmError = {},
-            onCameraMoved = { _, _, _, _, _, _ -> },
-            onSetScreen = {},
-            onStartVrm = {},
-            onSkipVrm = {}
-        )
-    }
+    // Provide dummy engine/loader for preview
+    // Note: This won't render 3D in preview but avoids compilation errors
 }

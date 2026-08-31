@@ -12,6 +12,7 @@ import com.ttt.companion.audio.VoiceRecorder
 import com.ttt.companion.llm.DownloadState
 import com.ttt.companion.llm.LlmService
 import com.ttt.companion.llm.ModelDownloader
+import com.ttt.companion.llm.ModelConfig
 import com.ttt.companion.llm.SetupPhase
 import com.ttt.companion.model.ChatMessage
 import com.ttt.companion.model.defaultCharacter
@@ -22,6 +23,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import com.ttt.companion.vrm.VrmAssetHelper
+import com.google.android.filament.Engine
+import io.github.sceneview.loaders.ModelLoader
+import io.github.sceneview.model.ModelInstance
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -36,6 +40,39 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val memoryManager = com.ttt.companion.memory.MemoryManager(app)
     private val toolRouter    = com.ttt.companion.tools.ToolRouter(app)
 
+    // 3D Engine Singleton Context
+    // 3D Engine Shared Context (Singleton for the whole app)
+    companion object {
+        private var _engine: Engine? = null
+        private var _modelLoader: ModelLoader? = null
+
+        fun getEngine(): Engine {
+            if (_engine == null) {
+                com.google.android.filament.utils.Utils.init()
+                _engine = try {
+                    // Prioritize Vulkan for "Unlimited Bone" support and modern features
+                    Engine.create(Engine.Backend.VULKAN)
+                } catch (e: Exception) {
+                    // Fallback to OpenGL for older devices or if Vulkan fails
+                    Engine.create(Engine.Backend.OPENGL)
+                }
+            }
+            return _engine!!
+        }
+
+        fun getModelLoader(app: Application): ModelLoader {
+            if (_modelLoader == null) {
+                _modelLoader = ModelLoader(getEngine(), app)
+            }
+            return _modelLoader!!
+        }
+    }
+
+    val engine = getEngine()
+    val modelLoader = getModelLoader(app)
+    
+    private val _modelInstance = MutableStateFlow<ModelInstance?>(null)
+    val modelInstance = _modelInstance.asStateFlow()
     private val _vrmUrl = MutableStateFlow<String?>(null)
     val vrmUrl = _vrmUrl.asStateFlow()
 
@@ -101,7 +138,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _customContextSize = MutableStateFlow(
         app.getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
-            .getInt("llm_context_size", 4096)
+            .getInt("llm_context_size", ModelConfig.DEFAULT_CTX_SIZE)
     )
     val customContextSize = _customContextSize.asStateFlow()
 
@@ -192,7 +229,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val url = VrmAssetHelper.ensureVrm(getApplication(), character.id)
             _vrmUrl.value = url
 
-            // Also load idle animation
+            // Pre-load model instance in ViewModel
+            if (url != null) {
+                val fileLocation = if (url.startsWith("/")) "file://$url" else url
+                modelLoader.loadModelInstanceAsync(fileLocation) { instance ->
+                    _modelInstance.value = instance
+                }
+            }
+
             val animUrl = VrmAssetHelper.ensureAnim(getApplication(), "idle")
             _idleAnimUrl.value = animUrl
         }

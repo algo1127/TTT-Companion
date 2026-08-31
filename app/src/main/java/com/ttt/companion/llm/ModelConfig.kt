@@ -7,6 +7,7 @@ package com.ttt.companion.llm
 object ModelConfig {
     const val MODEL_ID      = "qwen3.5-4b"
     const val MODEL_DIR     = "models/qwen3.5-4b"  // relative to filesDir
+    const val DEFAULT_CTX_SIZE = 2048
 
     // !! Replace with the real HuggingFace URL for your chosen quantization !!
     // Pattern: https://huggingface.co/<user>/<repo>/resolve/main/<file.gguf>
