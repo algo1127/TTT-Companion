@@ -2,15 +2,10 @@ package com.ttt.companion.audio
 
 /**
  * Single source of truth for audio model identity (STT + TTS).
- *
- * STT  → sherpa-onnx Whisper tiny.en INT8  (~87 MB, two ONNX files + tokens)
- * TTS  → sherpa-onnx XTTS-v2 ONNX         (~1.6 GB, two ONNX files + vocab)
- *
- * All paths are relative to Context.filesDir.
  */
 object AudioConfig {
 
-    // ─── STT — Whisper tiny.en INT8 ─────────────────────────────────────────
+    // --- STT — Whisper tiny.en INT8 -----------------------------------------
 
     const val STT_DIR          = "models/whisper-tiny-en"
     const val STT_ENCODER_FILE = "encoder.int8.onnx"
@@ -28,40 +23,36 @@ object AudioConfig {
         DownloadFile(STT_TOKENS_FILE,  "$STT_HF/tiny.en-tokens.txt")
     )
 
-    // ─── TTS — XTTS-v2 ONNX (Coqui, via sherpa-onnx) ───────────────────────
-    //
-    // The sherpa-onnx team exports XTTS-v2 to ONNX and hosts it on HuggingFace.
-    // These are the two ONNX shards + the vocab file needed by OfflineTts.
-    //
-    // !! VERIFY before first build — confirm repo name & file list with:
-    //    https://huggingface.co/csukuangfj?search=xtts
-    //
+    // --- TTS — Kokoro v1.0 --------------------------------------------------
 
-    const val TTS_DIR           = "models/kokoro-en-v019"
+    const val TTS_DIR           = "models/kokoro-multi-v1.0"
     const val TTS_MODEL_FILE    = "model.onnx"
     const val TTS_VOICES_FILE   = "voices.bin"
     const val TTS_TOKENS_FILE   = "tokens.txt"
     const val TTS_DATA_TAR_BZ2  = "espeak-ng-data.tar.bz2"
     const val TTS_DATA_DIR      = "espeak-ng-data"
-    const val TTS_DISPLAY_SIZE  = "~350 MB"
+    const val TTS_LEXICON_EN_US = "lexicon-us-en.txt"
+    const val TTS_LEXICON_EN_GB = "lexicon-gb-en.txt"
+    const val TTS_LEXICON_ZH    = "lexicon-zh.txt"
+    const val TTS_DISPLAY_SIZE  = "~415 MB"
 
     // Reference sample rate for Kokoro (24kHz)
     const val TTS_REF_SAMPLE_RATE = 24_000
 
-    private const val KOKORO_HF = "https://huggingface.co/csukuangfj/kokoro-en-v0_19/resolve/main"
+    private const val KOKORO_HF = "https://huggingface.co/csukuangfj/kokoro-multi-lang-v1_0/resolve/main"
     private const val DATA_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/espeak-ng-data.tar.bz2"
 
     val TTS_FILES = listOf(
         DownloadFile(TTS_MODEL_FILE,   "$KOKORO_HF/model.onnx"),
         DownloadFile(TTS_VOICES_FILE,  "$KOKORO_HF/voices.bin"),
         DownloadFile(TTS_TOKENS_FILE,  "$KOKORO_HF/tokens.txt"),
+        DownloadFile(TTS_LEXICON_EN_US, "$KOKORO_HF/lexicon-us-en.txt"),
+        DownloadFile(TTS_LEXICON_EN_GB, "$KOKORO_HF/lexicon-gb-en.txt"),
+        DownloadFile(TTS_LEXICON_ZH,    "$KOKORO_HF/lexicon-zh.txt"),
         DownloadFile(TTS_DATA_TAR_BZ2, DATA_URL)
     )
 
-    // ─── Voice sample ────────────────────────────────────────────────────────
-    //
-    // Bundled in assets/voice_samples/aria_reference.wav (commit a clean 5-10s
-    // mono 22050 Hz WAV of the desired voice).  Copied to filesDir on first run.
+    // --- Voice sample -------------------------------------------------------
 
     const val VOICE_SAMPLE_ASSET = "voice_samples/aria_reference.wav"
     const val VOICE_SAMPLE_DIR   = "characters/aria"

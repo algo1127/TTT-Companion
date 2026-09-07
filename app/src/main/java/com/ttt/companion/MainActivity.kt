@@ -12,10 +12,20 @@ import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import com.ttt.companion.llm.DownloadState
 import com.ttt.companion.ui.MainViewModel
 import com.ttt.companion.ui.SetupScreen
 import com.ttt.companion.ui.VrmScreen
+import com.ttt.companion.ui.CharacterScreen
+import com.ttt.companion.ui.SettingsScreen
 import org.godotengine.godot.Godot
 import org.godotengine.godot.GodotHost
 import org.godotengine.godot.plugin.GodotPlugin
@@ -54,7 +64,7 @@ class MainActivity : FragmentActivity(), GodotHost {
         return setOf(plugin)
     }
 
-    // ── Microphone permission launcher ────────────────────────────────────────
+    // --- Microphone permission launcher -------------------------------------
     private val micPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -79,8 +89,30 @@ class MainActivity : FragmentActivity(), GodotHost {
         setContent {
             MaterialTheme {
                 val downloadState by viewModel.downloadState.collectAsStateWithLifecycle()
+                val currentScreen by viewModel.currentScreen.collectAsStateWithLifecycle()
+
                 if (downloadState == DownloadState.Done || downloadState == DownloadState.AlreadyHave) {
-                    VrmScreen(viewModel)
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        // Always keep VRM (Godot) in the background so it doesn't terminate
+                        VrmScreen(viewModel)
+
+                        // Show other screens as overlays
+                        AnimatedVisibility(
+                            visible = currentScreen == MainViewModel.Screen.CHARACTER,
+                            enter = fadeIn() + slideInHorizontally(),
+                            exit = fadeOut() + slideOutHorizontally()
+                        ) {
+                            CharacterScreen(viewModel)
+                        }
+
+                        AnimatedVisibility(
+                            visible = currentScreen == MainViewModel.Screen.SETTINGS,
+                            enter = fadeIn() + slideInHorizontally(),
+                            exit = fadeOut() + slideOutHorizontally()
+                        ) {
+                            SettingsScreen(viewModel)
+                        }
+                    }
                 } else {
                     SetupScreen(viewModel)
                 }

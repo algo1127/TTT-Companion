@@ -32,10 +32,24 @@ class GodotVrmPlugin(godot: Godot) : GodotPlugin(godot) {
         emitSignal("speaking_changed", speaking)
     }
 
+    fun setCameraLocked(locked: Boolean) {
+        emitSignal("camera_lock_changed", locked)
+    }
+
+    @UsedByGodot
+    fun saveCameraPosition(px: Float, py: Float, pz: Float, tx: Float, ty: Float, tz: Float) {
+        Log.d("GodotVrmPlugin", "saveCameraPosition called from Godot: $px, $py, $pz")
+        // In Godot 4.x GodotPlugin, use getActivity() to access the host activity
+        (activity as? com.ttt.companion.MainActivity)?.let { mainActivity ->
+            // mainActivity.viewModel.saveCameraPosition(px, py, pz, tx, ty, tz)
+        }
+    }
+
     override fun getPluginSignals(): Set<org.godotengine.godot.plugin.SignalInfo> {
         return setOf(
             org.godotengine.godot.plugin.SignalInfo("load_vrm_requested", String::class.java),
-            org.godotengine.godot.plugin.SignalInfo("speaking_changed", Boolean::class.javaObjectType)
+            org.godotengine.godot.plugin.SignalInfo("speaking_changed", Boolean::class.javaObjectType),
+            org.godotengine.godot.plugin.SignalInfo("camera_lock_changed", Boolean::class.javaObjectType)
         )
     }
 }

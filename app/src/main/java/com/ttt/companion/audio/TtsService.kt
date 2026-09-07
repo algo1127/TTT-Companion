@@ -32,9 +32,13 @@ class TtsService(private val context: Context) {
     }
 
     /**
-     * Load the Kokoro ONNX model.
+     * Load the Kokoro ONNX model, optionally creating a blended voice.
      */
-    suspend fun init(referenceWavPath: String): LoadState = withContext(Dispatchers.IO) {
+    suspend fun init(
+        referenceWavPath: String, 
+        lang: String = "en-us",
+        blend: BlendConfig? = null
+    ): LoadState = withContext(Dispatchers.IO) {
         try {
             val modelDir    = File(context.filesDir, AudioConfig.TTS_DIR)
             val modelFile   = File(modelDir, AudioConfig.TTS_MODEL_FILE)
@@ -48,12 +52,11 @@ class TtsService(private val context: Context) {
                     Log.e(TAG, "Missing TTS model file: ${f.absolutePath}")
                     return@withContext LoadState.Error("Missing: ${f.name}")
                 }
-                if (f.length() < 1024) {
-                    Log.e(TAG, "TTS file is suspiciously small (${f.length()} bytes): ${f.absolutePath}")
+                if (f.length() == 0L) {
+                    Log.e(TAG, "TTS file is empty: ${f.absolutePath}")
                     f.delete()
-                    return@withContext LoadState.Error("Corrupted: ${f.name}")
+                    return@withContext LoadState.Error("Empty: ${f.name}")
                 }
-                Log.d(TAG, "TTS File: ${f.name}, size=${f.length()} bytes")
             }
 
             // Extract espeak-ng-data if not already present
@@ -62,13 +65,36 @@ class TtsService(private val context: Context) {
                 untar(dataTarFile, modelDir)
             }
 
+            // Handle Voice Blending if requested
+            var activeVoicesPath = voicesFile.absolutePath
+            if (blend != null) {
+                try {
+                    val customVoicesFile = File(modelDir, "voices_custom.bin")
+                    createBlendedVoices(voicesFile, customVoicesFile, blend)
+                    activeVoicesPath = customVoicesFile.absolutePath
+                    Log.i(TAG, "Custom blended voice created at SID ${blend.customSid}")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to blend voices, using original", e)
+                }
+            }
+
+            // Map language to lexicon
+            val lexiconFile = when (lang.lowercase()) {
+                "en-us" -> File(modelDir, AudioConfig.TTS_LEXICON_EN_US)
+                "en-gb" -> File(modelDir, AudioConfig.TTS_LEXICON_EN_GB)
+                "zh"    -> File(modelDir, AudioConfig.TTS_LEXICON_ZH)
+                else    -> null
+            }
+
             val config = OfflineTtsConfig(
                 model = OfflineTtsModelConfig(
                     kokoro = OfflineTtsKokoroModelConfig(
                         model = modelFile.absolutePath,
-                        voices = voicesFile.absolutePath,
+                        voices = activeVoicesPath,
                         tokens = tokensFile.absolutePath,
-                        dataDir = dataDir.absolutePath
+                        dataDir = dataDir.absolutePath,
+                        lexicon = lexiconFile?.absolutePath ?: "",
+                        lang = lang
                     ),
                     numThreads = 6,
                     debug      = false,
@@ -86,6 +112,51 @@ class TtsService(private val context: Context) {
             LoadState.Error(e.message ?: "Unknown TTS init error")
         }
     }
+
+    private fun createBlendedVoices(source: File, target: File, blend: BlendConfig) {
+        val originalBytes = source.readBytes().copyOf() // Copy to be safe
+        val speakerCount = 53
+        val vectorSize = originalBytes.size / speakerCount 
+        
+        val offsetA = blend.voiceASid * vectorSize
+        val offsetB = blend.voiceBSid * vectorSize
+        val offsetTarget = blend.customSid * vectorSize // Usually 0
+        
+        if (offsetA + vectorSize > originalBytes.size || 
+            offsetB + vectorSize > originalBytes.size ||
+            offsetTarget + vectorSize > originalBytes.size) {
+            throw Exception("Voice ID out of range for blending")
+        }
+
+        val ratioA = blend.ratio
+        val ratioB = 1.0f - ratioA
+
+        // Perform vector interpolation in float space
+        val floatCount = vectorSize / 4
+        for (i in 0 until floatCount) {
+            val byteIdx = i * 4
+            
+            val valA = java.nio.ByteBuffer.wrap(originalBytes, offsetA + byteIdx, 4)
+                .order(java.nio.ByteOrder.LITTLE_ENDIAN).float
+            val valB = java.nio.ByteBuffer.wrap(originalBytes, offsetB + byteIdx, 4)
+                .order(java.nio.ByteOrder.LITTLE_ENDIAN).float
+            
+            val mixed = (valA * ratioA) + (valB * ratioB)
+            
+            java.nio.ByteBuffer.wrap(originalBytes, offsetTarget + byteIdx, 4)
+                .order(java.nio.ByteOrder.LITTLE_ENDIAN).putFloat(mixed)
+        }
+
+        // Save the modified file (same size as original)
+        target.writeBytes(originalBytes)
+    }
+
+    data class BlendConfig(
+        val voiceASid: Int,
+        val voiceBSid: Int,
+        val ratio: Float,
+        val customSid: Int // Total original voices
+    )
 
     private fun untar(tarBz2File: File, targetDir: File) {
         tarBz2File.inputStream().use { fis ->
@@ -109,23 +180,23 @@ class TtsService(private val context: Context) {
         }
     }
 
-    suspend fun speak(text: String, speed: Float = 1.0f) = withContext(Dispatchers.IO) {
+    suspend fun speak(text: String, voiceId: Int = 0, speed: Float = 1.0f, pitch: Float = 1.0f) = withContext(Dispatchers.IO) {
         val engine = tts ?: run {
             Log.e(TAG, "speak() called before init()")
             return@withContext
         }
 
         try {
-            Log.d(TAG, "Generating TTS for: \"$text\"")
-            val audio = engine.generate(text = text, sid = 0, speed = speed)
-            Log.d(TAG, "TTS done — ${audio.samples.size} samples @ ${audio.sampleRate} Hz")
-            playPcm(audio.samples, audio.sampleRate)
+            Log.d(TAG, "Generating TTS for: \"$text\" (voice=$voiceId, speed=$speed, pitch=$pitch)")
+            val audio = engine.generate(text = text, sid = voiceId, speed = speed)
+            Log.d(TAG, "TTS done ÔÇö ${audio.samples.size} samples @ ${audio.sampleRate} Hz")
+            playPcm(audio.samples, audio.sampleRate, pitch = pitch)
         } catch (e: Exception) {
             Log.e(TAG, "TTS speak error", e)
         }
     }
 
-    private fun playPcm(samples: FloatArray, sampleRate: Int) {
+    private fun playPcm(samples: FloatArray, sampleRate: Int, pitch: Float = 1.0f) {
         val track = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -143,6 +214,16 @@ class TtsService(private val context: Context) {
             .setTransferMode(AudioTrack.MODE_STREAM)
             .setBufferSizeInBytes(samples.size * 4)
             .build()
+
+        if (pitch != 1.0f) {
+            try {
+                val params = track.playbackParams
+                params.pitch = pitch
+                track.playbackParams = params
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to set pitch: ${e.message}")
+            }
+        }
 
         track.play()
         track.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)

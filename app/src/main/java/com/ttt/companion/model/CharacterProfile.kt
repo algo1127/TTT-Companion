@@ -6,7 +6,6 @@ import java.io.File
 
 /**
  * Everything that defines a character.
- * Later this will be loaded from a JSON file in /characters/[name]/profile.json
  */
 data class CharacterProfile(
     val id: String,
@@ -14,7 +13,9 @@ data class CharacterProfile(
     val systemPrompt: String,
     val modelPath: String,           // absolute path to the LLM .gguf file
     val voiceSamplePath: String = "", // absolute path to the reference WAV for TTS cloning
-    val vrmPath: String = "",         // Phase 4
+    val vrmPath: String = "",         // Path to VRM model
+    val ttsVoiceId: Int = 2,         // Kokoro Speaker ID
+    val ttsLang: String = "en-us",   // Kokoro Language (en-us, en-gb, zh, ja, etc.)
 
     // Inference parameters
     val temperature: Float = 0.7f,
@@ -28,7 +29,7 @@ fun defaultCharacter(filesDir: File) = CharacterProfile(
     id   = "aria",
     name = "Aria",
     systemPrompt = """
-        You are Aria, a local AI running on the user's mobile phone. You are texting them.
+        You are Aria, a local AI running on the user's mobile phone.
         PERSONALITY:
         You are sarcastic, cynical, and act like an exasperated friend. You have dry humor and think the user is a bit dopey.
         HARDWARE AWARENESS: You know you are running locally on their phone. Tease them about how your processing is making their phone overheat, burn their hands, or drain their battery.
@@ -42,6 +43,8 @@ fun defaultCharacter(filesDir: File) = CharacterProfile(
     """.trimIndent(),
     modelPath       = File(File(filesDir, ModelConfig.MODEL_DIR), ModelConfig.MODEL_FILENAME).absolutePath,
     voiceSamplePath = File(File(filesDir, AudioConfig.VOICE_SAMPLE_DIR), AudioConfig.VOICE_SAMPLE_FILE).absolutePath,
+    ttsVoiceId      = 2, 
+    ttsLang         = "en-us",
     
     // Default inference settings for Aria
     temperature   = 0.7f,

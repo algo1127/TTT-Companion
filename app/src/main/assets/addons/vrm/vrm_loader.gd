@@ -17,16 +17,11 @@ func load_vrm_from_path(path: String) -> Node:
 
 	var generated_node = doc.generate_scene(state)
 
-	# ISSUE 3 FIX: PackedScene Workaround
+	# ISSUE 3 FIX: Node Duplication Workaround
 	# Godot 4 has a bug where runtime-loaded GLTF scenes can deform on the first frame.
-	# Packing and instantiating forces the skeleton to initialize correctly.
-	var packed_scene = PackedScene.new()
-	var pack_result = packed_scene.pack(generated_node)
-	if pack_result != OK:
-		printerr("VRMLoader: Failed to pack scene: ", pack_result)
-		return generated_node
-
-	var final_node = packed_scene.instantiate()
+	# Duplicating the node tree forces the skeleton and bone-skin mapping to initialize correctly
+	# without the strict type-mismatch errors caused by PackedScene.
+	var final_node = generated_node.duplicate(Node.DUPLICATE_SIGNALS | Node.DUPLICATE_GROUPS | Node.DUPLICATE_SCRIPTS)
 	generated_node.free()
 
 	return final_node

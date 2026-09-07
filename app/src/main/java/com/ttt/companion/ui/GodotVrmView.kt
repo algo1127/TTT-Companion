@@ -15,6 +15,7 @@ import org.godotengine.godot.GodotFragment
 fun GodotVrmView(
     modelPath: String?,
     isSpeaking: Boolean,
+    isCameraLocked: Boolean,
     modifier: Modifier = Modifier,
     onLoaded: () -> Unit = {},
     onError: (String) -> Unit = {}
@@ -71,6 +72,7 @@ fun GodotVrmView(
 
         godot.runOnRenderThread {
             plugin.loadVrm(path)
+            plugin.setCameraLocked(isCameraLocked)
         }
     }
 
@@ -80,6 +82,16 @@ fun GodotVrmView(
         if (activity.isGodotReady) {
             activity.getGodot()?.runOnRenderThread {
                 activity.vrmPlugin?.setSpeaking(isSpeaking)
+            }
+        }
+    }
+
+    LaunchedEffect(isCameraLocked) {
+        val activity = fragmentActivity as? com.ttt.companion.MainActivity ?: return@LaunchedEffect
+        
+        if (activity.isGodotReady) {
+            activity.getGodot()?.runOnRenderThread {
+                activity.vrmPlugin?.setCameraLocked(isCameraLocked)
             }
         }
     }
