@@ -40,7 +40,20 @@ func _ready():
 		plugin.connect("load_vrm_requested", _on_load_vrm_requested)
 		plugin.connect("speaking_changed", _on_speaking_changed)
 		plugin.connect("camera_lock_changed", _on_camera_lock_changed)
+		plugin.connect("camera_init_requested", _on_camera_init_requested)
 		print("[Godot] Connected to GodotVrmPlugin")
+
+func _on_camera_init_requested(rx: float, ry: float, zoom: float):
+	print("[Godot] camera_init_requested: R(", rx, ",", ry, ") Z(", zoom, ")")
+	target_rotation.x = rx
+	target_rotation.y = ry
+	zoom_distance = zoom
+	current_rotation = target_rotation
+	if cam_pivot:
+		cam_pivot.rotation.x = rx
+		cam_pivot.rotation.y = ry
+	if camera:
+		camera.position.z = zoom
 
 func _on_camera_lock_changed(locked: bool):
 	print("[Godot] camera_lock_changed: ", locked)
@@ -96,10 +109,17 @@ func _input(event):
 		target_rotation.y -= event.relative.x * 0.005
 		target_rotation.x -= event.relative.y * 0.005
 		target_rotation.x = clamp(target_rotation.x, -0.5, 0.5)
+		_save_camera()
 
 	elif event is InputEventMagnifyGesture:
 		# Zoom support
 		zoom_distance = clamp(zoom_distance / event.factor, 0.5, 3.0)
+		_save_camera()
+
+func _save_camera():
+	if Engine.has_singleton("GodotVrmPlugin"):
+		var plugin = Engine.get_singleton("GodotVrmPlugin")
+		plugin.onCameraMoved(target_rotation.x, target_rotation.y, zoom_distance)
 
 func _on_load_vrm_requested(path: String):
 	print("[Godot] load_vrm_requested via Addon Loader: ", path)
@@ -231,10 +251,12 @@ func _process(delta):
 			item.mesh.set_blend_shape_value(item.idx, blink_value)
 
 	# --- Lip Sync / Speaking ---
+	# Lip sync disabled per user request
 	if avatar and is_speaking_active:
-		var t = Time.get_ticks_msec() / 1000.0
-		var value = (sin(t * 15.0) + 1.0) * 0.35
-		_apply_mouth_blend_shape(avatar, value)
+		pass
+		# var t = Time.get_ticks_msec() / 1000.0
+		# var value = (sin(t * 15.0) + 1.0) * 0.35
+		# _apply_mouth_blend_shape(avatar, value)
 
 func _apply_mouth_blend_shape(node: Node, value: float):
 	if node is MeshInstance3D:

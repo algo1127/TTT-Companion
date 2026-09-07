@@ -46,6 +46,8 @@ fun VrmScreen(viewModel: MainViewModel) {
     val isSpeaking   by viewModel.isSpeaking.collectAsStateWithLifecycle()
     val audioState   by viewModel.audioState.collectAsStateWithLifecycle()
 
+    val cameraData   = remember { viewModel.loadCameraPosition() }
+
     VrmScreenContent(
         messages = messages,
         isLoading = isLoading,
@@ -57,11 +59,13 @@ fun VrmScreen(viewModel: MainViewModel) {
         characterName = characterName,
         isSpeaking = isSpeaking,
         audioState = audioState,
+        cameraData = cameraData,
         onSendMessage = { viewModel.sendMessage(it) },
         onToggleMic = { viewModel.toggleMic() },
         onToggleCameraLock = { viewModel.toggleCameraLock() },
         onVrmLoaded = { viewModel.onVrmLoaded() },
         onVrmError = { viewModel.onVrmError(it) },
+        onCameraMoved = { rx, ry, zoom -> viewModel.saveCameraPosition(rx, ry, zoom) },
         onSetScreen = { viewModel.setScreen(it) },
         onStartVrm = { viewModel.startVrm() },
         onSkipVrm = { viewModel.skipVrm() }
@@ -81,11 +85,13 @@ fun VrmScreenContent(
     characterName: String,
     isSpeaking: Boolean,
     audioState: MainViewModel.AudioState,
+    cameraData: FloatArray?,
     onSendMessage: (String) -> Unit,
     onToggleMic: () -> Unit,
     onToggleCameraLock: () -> Unit,
     onVrmLoaded: () -> Unit,
     onVrmError: (String) -> Unit,
+    onCameraMoved: (Float, Float, Float) -> Unit,
     onSetScreen: (MainViewModel.Screen) -> Unit,
     onStartVrm: () -> Unit,
     onSkipVrm: () -> Unit
@@ -167,9 +173,11 @@ fun VrmScreenContent(
                     modelPath = vrmUrl,
                     isSpeaking = isSpeaking,
                     isCameraLocked = isCameraLocked,
+                    initialCameraData = cameraData,
                     modifier = Modifier.fillMaxSize(),
                     onLoaded = onVrmLoaded,
-                    onError = onVrmError
+                    onError = onVrmError,
+                    onCameraMoved = onCameraMoved
                 )
             }
 

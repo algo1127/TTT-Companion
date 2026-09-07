@@ -16,8 +16,10 @@ fun GodotVrmView(
     modelPath: String?,
     isSpeaking: Boolean,
     isCameraLocked: Boolean,
+    initialCameraData: FloatArray?,
     modifier: Modifier = Modifier,
     onLoaded: () -> Unit = {},
+    onCameraMoved: (Float, Float, Float) -> Unit = { _, _, _ -> },
     onError: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -69,10 +71,17 @@ fun GodotVrmView(
         val plugin = activity.vrmPlugin ?: return@LaunchedEffect
         
         plugin.setOnVrmLoadedCallback(onLoaded)
+        plugin.setOnCameraMovedCallback(onCameraMoved)
 
         godot.runOnRenderThread {
             plugin.loadVrm(path)
             plugin.setCameraLocked(isCameraLocked)
+            
+            initialCameraData?.let {
+                if (it.size >= 3) {
+                    plugin.setInitialCamera(it[0], it[1], it[2])
+                }
+            }
         }
     }
 

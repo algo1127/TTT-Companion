@@ -10,9 +10,14 @@ class GodotVrmPlugin(godot: Godot) : GodotPlugin(godot) {
     override fun getPluginName() = "GodotVrmPlugin"
 
     private var onVrmLoadedCallback: (() -> Unit)? = null
+    private var onCameraMovedCallback: ((Float, Float, Float) -> Unit)? = null
 
     fun setOnVrmLoadedCallback(callback: () -> Unit) {
         onVrmLoadedCallback = callback
+    }
+
+    fun setOnCameraMovedCallback(callback: (Float, Float, Float) -> Unit) {
+        onCameraMovedCallback = callback
     }
 
     @UsedByGodot
@@ -21,10 +26,12 @@ class GodotVrmPlugin(godot: Godot) : GodotPlugin(godot) {
         onVrmLoadedCallback?.invoke()
     }
 
+    @UsedByGodot
+    fun onCameraMoved(rx: Float, ry: Float, zoom: Float) {
+        onCameraMovedCallback?.invoke(rx, ry, zoom)
+    }
+
     fun loadVrm(path: String) {
-        // This calls a method in GDScript
-        // In Godot 4, we use emitSignal or we can use call_deferred if we find the node
-        // However, the easiest way is to let GDScript call US, and we call GDScript via signals.
         emitSignal("load_vrm_requested", path)
     }
 
@@ -36,20 +43,16 @@ class GodotVrmPlugin(godot: Godot) : GodotPlugin(godot) {
         emitSignal("camera_lock_changed", locked)
     }
 
-    @UsedByGodot
-    fun saveCameraPosition(px: Float, py: Float, pz: Float, tx: Float, ty: Float, tz: Float) {
-        Log.d("GodotVrmPlugin", "saveCameraPosition called from Godot: $px, $py, $pz")
-        // In Godot 4.x GodotPlugin, use getActivity() to access the host activity
-        (activity as? com.ttt.companion.MainActivity)?.let { mainActivity ->
-            // mainActivity.viewModel.saveCameraPosition(px, py, pz, tx, ty, tz)
-        }
+    fun setInitialCamera(rx: Float, ry: Float, zoom: Float) {
+        emitSignal("camera_init_requested", rx, ry, zoom)
     }
 
     override fun getPluginSignals(): Set<org.godotengine.godot.plugin.SignalInfo> {
         return setOf(
             org.godotengine.godot.plugin.SignalInfo("load_vrm_requested", String::class.java),
             org.godotengine.godot.plugin.SignalInfo("speaking_changed", Boolean::class.javaObjectType),
-            org.godotengine.godot.plugin.SignalInfo("camera_lock_changed", Boolean::class.javaObjectType)
+            org.godotengine.godot.plugin.SignalInfo("camera_lock_changed", Boolean::class.javaObjectType),
+            org.godotengine.godot.plugin.SignalInfo("camera_init_requested", Float::class.javaObjectType, Float::class.javaObjectType, Float::class.javaObjectType)
         )
     }
 }

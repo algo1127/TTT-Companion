@@ -57,7 +57,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _isSpeaking = MutableStateFlow(false)
     val isSpeaking = _isSpeaking.asStateFlow()
 
-    enum class Screen { VRM, SETTINGS, PROFILE, CHARACTER }
+    enum class AppMode { UNSET, MODE_2D, MODE_3D }
+    private val _appMode = MutableStateFlow(AppMode.UNSET)
+    val appMode = _appMode.asStateFlow()
+
+    private val _useLegacyTestScreen = MutableStateFlow(
+        app.getSharedPreferences("experimental_prefs", Application.MODE_PRIVATE)
+            .getBoolean("use_legacy_test", false)
+    )
+    val useLegacyTestScreen = _useLegacyTestScreen.asStateFlow()
+
+    enum class Screen { VRM, SETTINGS, PROFILE, CHARACTER, TEST }
     private val _currentScreen = MutableStateFlow(Screen.VRM)
     val currentScreen = _currentScreen.asStateFlow()
 
@@ -395,6 +405,25 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     // --- VRM / Lip sync -----------------------------------------------------
 
+    fun setAppMode(mode: AppMode) {
+        _appMode.value = mode
+        if (mode == AppMode.MODE_2D) {
+            skipVrm()
+        } else if (mode == AppMode.MODE_3D) {
+            _vrmActive.value = true
+            _vrmLoading.value = true
+            startVrm()
+        }
+    }
+
+    fun setLegacyTestScreen(enabled: Boolean) {
+        _useLegacyTestScreen.value = enabled
+        getApplication<Application>().getSharedPreferences("experimental_prefs", Application.MODE_PRIVATE)
+            .edit()
+            .putBoolean("use_legacy_test", enabled)
+            .apply()
+    }
+
     private var vrmLoadedOnce = false
 
     fun skipVrm() {
@@ -544,25 +573,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .apply()
     }
 
-    fun saveCameraPosition(px: Float, py: Float, pz: Float, tx: Float, ty: Float, tz: Float) {
+    fun saveCameraPosition(rx: Float, ry: Float, zoom: Float) {
         getApplication<Application>().getSharedPreferences("vrm_prefs", Application.MODE_PRIVATE)
             .edit()
-            .putFloat("cam_px", px)
-            .putFloat("cam_py", py)
-            .putFloat("cam_pz", pz)
-            .putFloat("cam_tx", tx)
-            .putFloat("cam_ty", ty)
-            .putFloat("cam_tz", tz)
+            .putFloat("cam_rx", rx)
+            .putFloat("cam_ry", ry)
+            .putFloat("cam_zoom", zoom)
             .apply()
-        Log.d(TAG, "Camera position saved: P($px,$py,$pz) T($tx,$ty,$tz)")
+        Log.d(TAG, "Camera position saved: R($rx,$ry) Z($zoom)")
     }
 
     fun loadCameraPosition(): FloatArray? {
         val prefs = getApplication<Application>().getSharedPreferences("vrm_prefs", Application.MODE_PRIVATE)
-        if (!prefs.contains("cam_px")) return null
+        if (!prefs.contains("cam_rx")) return null
         return floatArrayOf(
-            prefs.getFloat("cam_px", 0f), prefs.getFloat("cam_py", 1.1f), prefs.getFloat("cam_pz", 1.3f),
-            prefs.getFloat("cam_tx", 0f), prefs.getFloat("cam_ty", 1.1f), prefs.getFloat("cam_tz", 0f)
+            prefs.getFloat("cam_rx", 0f), 
+            prefs.getFloat("cam_ry", 0f), 
+            prefs.getFloat("cam_zoom", 1.3f)
         )
     }
 
