@@ -15,4 +15,18 @@ func load_vrm_from_path(path: String) -> Node:
 		printerr("VRMLoader: Failed to parse VRM: ", error)
 		return null
 
-	return doc.generate_scene(state)
+	var generated_node = doc.generate_scene(state)
+
+	# ISSUE 3 FIX: PackedScene Workaround
+	# Godot 4 has a bug where runtime-loaded GLTF scenes can deform on the first frame.
+	# Packing and instantiating forces the skeleton to initialize correctly.
+	var packed_scene = PackedScene.new()
+	var pack_result = packed_scene.pack(generated_node)
+	if pack_result != OK:
+		printerr("VRMLoader: Failed to pack scene: ", pack_result)
+		return generated_node
+
+	var final_node = packed_scene.instantiate()
+	generated_node.free()
+
+	return final_node

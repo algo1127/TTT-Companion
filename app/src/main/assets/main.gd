@@ -6,6 +6,11 @@ var extensions_registered = false
 func _ready():
 	print("[Godot] main.gd _ready")
 
+	# ISSUE 1 FIX: Force 8-bone skinning weights at runtime
+	# This override ensures VRM models don't explode when project.godot is ignored.
+	ProjectSettings.set_setting("rendering/mesh_storage/skinning/max_blend_weights", 8)
+	ProjectSettings.save() # Ensure it persists if needed, though runtime set is often enough
+
 	# Fix orientation constant (SCREEN_PORTRAIT is the correct 4.x member)
 	DisplayServer.screen_set_orientation(DisplayServer.SCREEN_PORTRAIT)
 
@@ -22,15 +27,22 @@ func _ready():
 		print("[Godot] Connected to GodotVrmPlugin")
 
 func _register_vrm_extensions():
-	# Registering all necessary extensions for a runtime GLTFDocument load
+	# ISSUE 2 FIX: Register ALL V-Sekai extensions for runtime GLTFDocument load
 	var vrm_ext = load("res://addons/vrm/vrm_extension.gd")
 	var vrmc_vrm = load("res://addons/vrm/1.0/VRMC_vrm.gd")
 	var mtoon = load("res://addons/vrm/1.0/VRMC_materials_mtoon.gd")
+	var constraint = load("res://addons/vrm/1.0/VRMC_node_constraint.gd")
+	var springbone = load("res://addons/vrm/1.0/VRMC_springBone.gd")
+	var emissive = load("res://addons/vrm/1.0/VRMC_materials_hdr_emissiveMultiplier.gd")
 
 	if vrm_ext: GLTFDocument.register_gltf_document_extension(vrm_ext.new(), true)
 	if vrmc_vrm: GLTFDocument.register_gltf_document_extension(vrmc_vrm.new(), true)
 	if mtoon: GLTFDocument.register_gltf_document_extension(mtoon.new(), true)
-	print("[Godot] VRM extensions registered")
+	if constraint: GLTFDocument.register_gltf_document_extension(constraint.new(), true)
+	if springbone: GLTFDocument.register_gltf_document_extension(springbone.new(), true)
+	if emissive: GLTFDocument.register_gltf_document_extension(emissive.new(), true)
+
+	print("[Godot] VRM extensions registered (Full Set)")
 
 func setup_scene():
 	var cam = Camera3D.new()
