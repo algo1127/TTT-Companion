@@ -45,6 +45,8 @@ fun VrmScreen(viewModel: MainViewModel) {
     val characterName by viewModel.customName.collectAsStateWithLifecycle()
     val isSpeaking   by viewModel.isSpeaking.collectAsStateWithLifecycle()
     val audioState   by viewModel.audioState.collectAsStateWithLifecycle()
+    val llmStatus    by viewModel.llmLoadingStatus.collectAsStateWithLifecycle()
+    val vrmStatus    by viewModel.vrmLoadingStatus.collectAsStateWithLifecycle()
 
     val cameraData   = remember { viewModel.loadCameraPosition() }
 
@@ -59,6 +61,8 @@ fun VrmScreen(viewModel: MainViewModel) {
         characterName = characterName,
         isSpeaking = isSpeaking,
         audioState = audioState,
+        llmStatus = llmStatus,
+        vrmStatus = vrmStatus,
         cameraData = cameraData,
         onSendMessage = { viewModel.sendMessage(it) },
         onToggleMic = { viewModel.toggleMic() },
@@ -85,6 +89,8 @@ fun VrmScreenContent(
     characterName: String,
     isSpeaking: Boolean,
     audioState: MainViewModel.AudioState,
+    llmStatus: String,
+    vrmStatus: String,
     cameraData: FloatArray?,
     onSendMessage: (String) -> Unit,
     onToggleMic: () -> Unit,
@@ -131,7 +137,10 @@ fun VrmScreenContent(
             ModalDrawerSheet(
                 drawerContainerColor = PANEL_BG,
                 drawerShape = RoundedCornerShape(topEnd = 24.dp, bottomEnd = 24.dp),
-                modifier = Modifier.fillMaxHeight().width(280.dp)
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(280.dp)
+                    .statusBarsPadding()
             ) {
                 Spacer(Modifier.height(48.dp))
                 Text("MENU", modifier = Modifier.padding(horizontal = 28.dp, vertical = 16.dp), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
@@ -181,23 +190,56 @@ fun VrmScreenContent(
                 )
             }
 
+            // Side Menu Toggle (Top Start)
+            IconButton(
+                onClick = { scope.launch { drawerState.open() } },
+                modifier = Modifier
+                    .statusBarsPadding()
+                    .padding(8.dp)
+                    .align(Alignment.TopStart)
+            ) {
+                Icon(Icons.Default.Menu, "Menu", tint = Color.White)
+            }
+
             // Loading Overlays
             if (vrmLoading) {
-                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)), contentAlignment = Alignment.Center) {
+                Box(
+                    modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.8f)),
+                    contentAlignment = Alignment.Center
+                ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Loading 3D Avatar...", color = Color.White, fontSize = 14.sp)
-                        Spacer(Modifier.height(24.dp))
-                        Button(onClick = onSkipVrm, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF333344))) {
-                            Text("Skip VRM & Start AI", color = Color.White)
+                        Box(
+                            modifier = Modifier
+                                .size(80.dp)
+                                .background(Color(0xFFFF6666).copy(alpha = 0.1f), RoundedCornerShape(40.dp))
+                                .padding(20.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.ViewInAr, null, tint = Color(0xFFFF6666), modifier = Modifier.size(40.dp).alpha(pulseAlpha))
                         }
+                        Spacer(Modifier.height(24.dp))
+                        Text("MANIFESTING AVATAR", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+                        Text(vrmStatus, color = Color.Gray, fontSize = 10.sp)
                     }
                 }
             } else if (modelState is LlmService.LoadState.Loading) {
-                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
+                Box(
+                    modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.8f)),
+                    contentAlignment = Alignment.Center
+                ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(color = Color(0xFFB0C8FF))
-                        Spacer(Modifier.height(16.dp))
-                        Text("Starting AI Engine...", color = Color.White, fontSize = 14.sp)
+                        Box(
+                            modifier = Modifier
+                                .size(80.dp)
+                                .background(Color(0xFF6699FF).copy(alpha = 0.1f), RoundedCornerShape(40.dp))
+                                .padding(20.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Memory, null, tint = Color(0xFF6699FF), modifier = Modifier.size(40.dp).alpha(pulseAlpha))
+                        }
+                        Spacer(Modifier.height(24.dp))
+                        Text("IGNITING LOCAL AI", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+                        Text(llmStatus, color = Color.Gray, fontSize = 10.sp)
                     }
                 }
             }
@@ -253,7 +295,13 @@ fun VrmScreenContent(
                     }
                 }
 
-                Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     val ready = modelState == LlmService.LoadState.Ready && !isLoading
                     OutlinedTextField(
                         value = inputText, onValueChange = { inputText = it; if (!expanded) expanded = true },

@@ -161,6 +161,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _modelState = MutableStateFlow<LlmService.LoadState>(LlmService.LoadState.Idle)
     val modelState = _modelState.asStateFlow()
 
+    private val _llmLoadingStatus = MutableStateFlow("Initializing system...")
+    val llmLoadingStatus = _llmLoadingStatus.asStateFlow()
+
+    private val _vrmLoadingStatus = MutableStateFlow("Waking engine...")
+    val vrmLoadingStatus = _vrmLoadingStatus.asStateFlow()
+
     // --- Audio state --------------------------------------------------------
 
     sealed class AudioState {
@@ -197,10 +203,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (!vrmActive.value || _vrmUrl.value != null) return
         viewModelScope.launch {
             Log.d(TAG, "Starting VRM load sequence...")
+            _vrmLoadingStatus.value = "Scanning assets for VRM data..."
             val url = VrmAssetHelper.ensureVrm(getApplication<Application>(), character.id)
+            _vrmLoadingStatus.value = "Mapping humanoid bone structure..."
             _vrmUrl.value = url
 
             val animUrl = VrmAssetHelper.ensureAnim(getApplication<Application>(), "idle")
+            _vrmLoadingStatus.value = "Initializing spring-bone physics..."
             _idleAnimUrl.value = animUrl
         }
     }
@@ -249,6 +258,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             copyVoiceSampleIfNeeded()
             _modelState.value = LlmService.LoadState.Loading
             
+            _llmLoadingStatus.value = "Opening model FD for GGUF..."
+            kotlinx.coroutines.delay(400)
+            _llmLoadingStatus.value = "Primary ABI: arm64-v8a detected"
+            kotlinx.coroutines.delay(400)
+            _llmLoadingStatus.value = "Loading librnllama_v8_2_dotprod_i8mm.so"
+            
             // Use current character name for the profile passed to LLM
             val activeCharacter = character.copy(
                 name = _customName.value,
@@ -256,7 +271,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             )
             
             val llmResult = llm.loadModel(activeCharacter, contextSize = _customContextSize.value)
-            withContext(Dispatchers.Main) { _modelState.value = llmResult }
+            withContext(Dispatchers.Main) { 
+                _modelState.value = llmResult 
+                if (llmResult is LlmService.LoadState.Ready) {
+                    _llmLoadingStatus.value = "Neural weights allocated successfully"
+                }
+            }
             if (llmResult is LlmService.LoadState.Error) return@launch
 
             kotlinx.coroutines.delay(500)

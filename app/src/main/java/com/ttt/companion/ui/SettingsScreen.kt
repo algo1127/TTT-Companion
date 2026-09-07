@@ -26,12 +26,16 @@ private val PANEL_BG = Color(0xCC000000)
 @Composable
 fun SettingsScreen(viewModel: MainViewModel) {
     val contextSize by viewModel.customContextSize.collectAsStateWithLifecycle()
+    val useLegacyTest by viewModel.useLegacyTestScreen.collectAsStateWithLifecycle()
+
     SettingsScreenContent(
         contextSize = contextSize,
+        useLegacyTest = useLegacyTest,
         onBackClick = { viewModel.setScreen(MainViewModel.Screen.VRM) },
         onRestartLlmClick = { viewModel.restartLlm() },
         onRestartVrmClick = { viewModel.restartVrmEngine() },
-        onSaveLlmSettings = { viewModel.saveLlmSettings(it) }
+        onSaveLlmSettings = { viewModel.saveLlmSettings(it) },
+        onToggleLegacyTest = { viewModel.setLegacyTestScreen(it) }
     )
 }
 
@@ -39,10 +43,12 @@ fun SettingsScreen(viewModel: MainViewModel) {
 @Composable
 fun SettingsScreenContent(
     contextSize: Int,
+    useLegacyTest: Boolean,
     onBackClick: () -> Unit,
     onRestartLlmClick: () -> Unit,
     onRestartVrmClick: () -> Unit,
-    onSaveLlmSettings: (Int) -> Unit
+    onSaveLlmSettings: (Int) -> Unit,
+    onToggleLegacyTest: (Boolean) -> Unit
 ) {
     var localContextSize by remember(contextSize) { mutableIntStateOf(contextSize) }
 
@@ -137,6 +143,24 @@ fun SettingsScreenContent(
             SettingsSection(title = "Visuals (Coming Soon)") {
                 PlaceholderToggle("Dynamic Lighting", true)
                 PlaceholderToggle("Shadows", true)
+            }
+
+            SettingsSection(title = "Experimental") {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Legacy 2D TestScreen", color = Color.White, fontSize = 14.sp)
+                        Text("Use the debug interface for 2D mode. Requires reboot.", color = Color.Gray, fontSize = 11.sp)
+                    }
+                    Switch(
+                        checked = useLegacyTest,
+                        onCheckedChange = onToggleLegacyTest,
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF6699FF))
+                    )
+                }
             }
         }
     }
