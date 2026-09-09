@@ -3,12 +3,17 @@ extends Node3D
 var avatar = null
 var extensions_registered = false
 var is_camera_locked = false
+var pending_anim_path = ""
 
 var cam_pivot: Node3D
 var camera: Camera3D
 var target_rotation = Vector3.ZERO
 var current_rotation = Vector3.ZERO
 var zoom_distance = 1.3
+
+# Tracking variables for character focusing
+var skeleton_node: Skeleton3D = null
+var hips_bone_idx = -1
 
 # Blinking logic variables
 var blink_timer = 0.0
@@ -38,10 +43,88 @@ func _ready():
 	if Engine.has_singleton("GodotVrmPlugin"):
 		var plugin = Engine.get_singleton("GodotVrmPlugin")
 		plugin.connect("load_vrm_requested", _on_load_vrm_requested)
+		plugin.connect("load_anim_requested", _on_load_anim_requested)
 		plugin.connect("speaking_changed", _on_speaking_changed)
 		plugin.connect("camera_lock_changed", _on_camera_lock_changed)
 		plugin.connect("camera_init_requested", _on_camera_init_requested)
 		print("[Godot] Connected to GodotVrmPlugin")
+
+func _on_load_anim_requested(path: String):
+	print("[Godot] load_anim_requested: ", path)
+	if not avatar:
+		print("[Godot] Avatar not ready, storing animation path as pending: ", path)
+		pending_anim_path = path
+		return
+
+	if not FileAccess.file_exists(path):
+		print("Error: Target VRMA file path not found: ", path)
+		return
+
+	var VRMLoaderScript = load("res://addons/vrm/vrm_loader.gd")
+	var vrm_loader = VRMLoaderScript.new()
+	var lib = vrm_loader.load_vrma_from_path(path)
+
+	if lib == null:
+		print("Error: Failed to load animation library from path.")
+		return
+
+	var anim_player: AnimationPlayer = _find_animation_player(avatar)
+	if anim_player == null:
+		print("[Godot] AnimationPlayer not found on avatar, creating one.")
+		anim_player = AnimationPlayer.new()
+		avatar.add_child(anim_player)
+		# Set root node to parent of skeleton (usually the avatar itself)
+		anim_player.root_node = anim_player.get_path_to(avatar)
+	else:
+		print("[Godot] AnimationPlayer found on avatar at: ", anim_player.get_path())
+		# FIX: Ensure the root node is correctly set to the avatar root for imported scenes
+		var current_root = anim_player.get_node_or_null(anim_player.root_node)
+		if not current_root or current_root != avatar:
+			anim_player.root_node = anim_player.get_path_to(avatar)
+
+	# Clean old library if exists
+	if anim_player.has_animation_library("vrma"):
+		anim_player.remove_animation_library("vrma")
+
+	# Retarget tracks to the actual skeleton name in the loaded avatar
+	var skeleton = _find_skeleton(avatar)
+	if skeleton:
+		# Pass anim_player so the loader can calculate the correct relative path
+		vrm_loader.retarget_to_skeleton(lib, skeleton, anim_player)
+	else:
+		print("Warning: No skeleton found in avatar, tracks might not resolve.")
+
+	anim_player.add_animation_library("vrma", lib)
+	print("[Godot] Animation library added. Animations: ", lib.get_animation_list())
+
+	var anim_names = lib.get_animation_list()
+	if anim_names.size() > 0:
+		var anim_to_play = "vrma/" + anim_names[0]
+
+		# If there are multiple, look for "idle" specifically
+		for n in anim_names:
+			if n.to_lower().contains("idle"):
+				anim_to_play = "vrma/" + n
+				break
+
+		var anim = anim_player.get_animation(anim_to_play)
+		if anim:
+			anim.loop_mode = Animation.LOOP_LINEAR
+			anim_player.play(anim_to_play)
+			print("[Godot] Successfully playing animation: ", anim_to_play)
+		else:
+			print("Error: Animation found but could not be played: ", anim_to_play)
+	else:
+		print("Error: No animations found in the library.")
+
+func _find_animation_player(node: Node) -> AnimationPlayer:
+	if node is AnimationPlayer:
+		return node
+	for child in node.get_children():
+		var found = _find_animation_player(child)
+		if found:
+			return found
+	return null
 
 func _on_camera_init_requested(rx: float, ry: float, zoom: float):
 	print("[Godot] camera_init_requested: R(", rx, ",", ry, ") Z(", zoom, ")")
@@ -89,7 +172,7 @@ func setup_scene():
 	var light = DirectionalLight3D.new()
 	add_child(light)
 	light.quaternion = Quaternion(Vector3.RIGHT, -PI/4)
-	light.light_energy = 1.0
+	light.light_energy = 2.0 # Increased for better visibility
 	light.shadow_enabled = true
 
 	var env = WorldEnvironment.new()
@@ -99,7 +182,7 @@ func setup_scene():
 	env.environment.background_color = Color(0.1, 0.1, 0.12)
 	env.environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.environment.ambient_light_color = Color.WHITE
-	env.environment.ambient_light_energy = 0.5
+	env.environment.ambient_light_energy = 1.0 # Increased for better visibility
 
 func _input(event):
 	if is_camera_locked: return
@@ -155,11 +238,17 @@ func _on_load_vrm_requested(path: String):
 	_find_blink_shapes(avatar)
 	print("[Godot] Found ", blink_shapes.size(), " blink morph targets")
 
-	# Double-check the absolute structural nodes before attaching to world space
-	var skeleton: Skeleton3D = _find_skeleton(avatar)
-	if skeleton:
+	# Setup dynamic tracking target
+	skeleton_node = _find_skeleton(avatar)
+	if skeleton_node:
+		var skeleton = skeleton_node
 		# Re-verify and force the retargeting profiles to stay clean
 		skeleton.motion_scale = 1.0
+
+		hips_bone_idx = skeleton.find_bone("Hips")
+		if hips_bone_idx == -1:
+			hips_bone_idx = skeleton.find_bone("hips")
+		print("[Godot] Tracking bone index (Hips): ", hips_bone_idx)
 
 		# Reset bone pose scales to absolute baseline (Fixes bulged thighs/knees)
 		for i in range(skeleton.get_bone_count()):
@@ -173,9 +262,21 @@ func _on_load_vrm_requested(path: String):
 	avatar.position = Vector3(0, 0, 0)
 	avatar.rotation_degrees = Vector3(0, 180, 0) # Face camera
 
+	print("[Godot] Avatar structure:")
+	_print_tree(avatar, "  ")
+
 	# Notify Kotlin
 	var plugin = Engine.get_singleton("GodotVrmPlugin")
 	if plugin: plugin.onVrmLoaded()
+
+	if pending_anim_path != "":
+		_on_load_anim_requested(pending_anim_path)
+		pending_anim_path = ""
+
+func _print_tree(node: Node, indent: String):
+	print(indent, node.name, " (", node.get_class(), ")")
+	for child in node.get_children():
+		_print_tree(child, indent + "  ")
 
 var is_speaking_active = false
 func _on_speaking_changed(is_speaking: bool):
@@ -227,6 +328,14 @@ func _process(delta):
 	cam_pivot.rotation.x = current_rotation.x
 	cam_pivot.rotation.y = current_rotation.y
 	camera.position.z = lerp(camera.position.z, zoom_distance, delta * 10.0)
+
+	# Dynamic Character Focusing
+	if skeleton_node and hips_bone_idx != -1:
+		var hips_pose = skeleton_node.get_bone_global_pose(hips_bone_idx)
+		var target_pos = skeleton_node.to_global(hips_pose.origin)
+		# Add a vertical offset to focus on chest/face area instead of exactly the hips
+		target_pos.y += 0.4
+		cam_pivot.global_position = cam_pivot.global_position.lerp(target_pos, delta * 5.0)
 
 	# --- Blinking Logic ---
 	blink_timer += delta

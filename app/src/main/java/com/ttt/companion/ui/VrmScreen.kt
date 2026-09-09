@@ -20,17 +20,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ttt.companion.llm.LlmService
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
-// Translucent black for the overlay panels
+// Standard translucent black
 private val PANEL_BG = Color(0xCC000000)
 
 @Composable
@@ -39,6 +43,7 @@ fun VrmScreen(viewModel: MainViewModel) {
     val isLoading    by viewModel.isLoading.collectAsStateWithLifecycle()
     val modelState   by viewModel.modelState.collectAsStateWithLifecycle()
     val vrmUrl       by viewModel.vrmUrl.collectAsStateWithLifecycle()
+    val idleAnimUrl  by viewModel.idleAnimUrl.collectAsStateWithLifecycle()
     val vrmActive    by viewModel.vrmActive.collectAsStateWithLifecycle()
     val vrmLoading   by viewModel.vrmLoading.collectAsStateWithLifecycle()
     val isCameraLocked by viewModel.isCameraLocked.collectAsStateWithLifecycle()
@@ -55,6 +60,7 @@ fun VrmScreen(viewModel: MainViewModel) {
         isLoading = isLoading,
         modelState = modelState,
         vrmUrl = vrmUrl,
+        idleAnimUrl = idleAnimUrl,
         vrmActive = vrmActive,
         vrmLoading = vrmLoading,
         isCameraLocked = isCameraLocked,
@@ -83,6 +89,7 @@ fun VrmScreenContent(
     isLoading: Boolean,
     modelState: LlmService.LoadState,
     vrmUrl: String?,
+    idleAnimUrl: String?,
     vrmActive: Boolean,
     vrmLoading: Boolean,
     isCameraLocked: Boolean,
@@ -180,6 +187,7 @@ fun VrmScreenContent(
             if (vrmActive) {
                 GodotVrmView(
                     modelPath = vrmUrl,
+                    idleAnimPath = idleAnimUrl,
                     isSpeaking = isSpeaking,
                     isCameraLocked = isCameraLocked,
                     initialCameraData = cameraData,

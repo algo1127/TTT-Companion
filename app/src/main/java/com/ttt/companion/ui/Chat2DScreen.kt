@@ -215,7 +215,7 @@ fun Chat2DScreenContent(
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .background(Color.Black.copy(alpha = 0.8f)),
+                                    .background(Color.Black.copy(alpha = 0.9f)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {

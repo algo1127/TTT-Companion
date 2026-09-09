@@ -35,6 +35,10 @@ class GodotVrmPlugin(godot: Godot) : GodotPlugin(godot) {
         emitSignal("load_vrm_requested", path)
     }
 
+    fun loadAnim(path: String) {
+        emitSignal("load_anim_requested", path)
+    }
+
     fun setSpeaking(speaking: Boolean) {
         emitSignal("speaking_changed", speaking)
     }
@@ -50,6 +54,7 @@ class GodotVrmPlugin(godot: Godot) : GodotPlugin(godot) {
     override fun getPluginSignals(): Set<org.godotengine.godot.plugin.SignalInfo> {
         return setOf(
             org.godotengine.godot.plugin.SignalInfo("load_vrm_requested", String::class.java),
+            org.godotengine.godot.plugin.SignalInfo("load_anim_requested", String::class.java),
             org.godotengine.godot.plugin.SignalInfo("speaking_changed", Boolean::class.javaObjectType),
             org.godotengine.godot.plugin.SignalInfo("camera_lock_changed", Boolean::class.javaObjectType),
             org.godotengine.godot.plugin.SignalInfo("camera_init_requested", Float::class.javaObjectType, Float::class.javaObjectType, Float::class.javaObjectType)

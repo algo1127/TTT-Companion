@@ -14,6 +14,7 @@ import org.godotengine.godot.GodotFragment
 @Composable
 fun GodotVrmView(
     modelPath: String?,
+    idleAnimPath: String?,
     isSpeaking: Boolean,
     isCameraLocked: Boolean,
     initialCameraData: FloatArray?,
@@ -82,6 +83,19 @@ fun GodotVrmView(
                     plugin.setInitialCamera(it[0], it[1], it[2])
                 }
             }
+        }
+    }
+
+    LaunchedEffect(idleAnimPath) {
+        val path = idleAnimPath ?: return@LaunchedEffect
+        val activity = fragmentActivity as? com.ttt.companion.MainActivity ?: return@LaunchedEffect
+
+        while (!activity.isGodotReady || activity.getGodot() == null || activity.vrmPlugin == null) {
+            kotlinx.coroutines.delay(200)
+        }
+
+        activity.getGodot()?.runOnRenderThread {
+            activity.vrmPlugin?.loadAnim(path)
         }
     }
 

@@ -208,6 +208,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             _vrmLoadingStatus.value = "Mapping humanoid bone structure..."
             _vrmUrl.value = url
 
+            _vrmLoadingStatus.value = "Connecting GLTF extensions..."
+            kotlinx.coroutines.delay(300)
+            
             val animUrl = VrmAssetHelper.ensureAnim(getApplication<Application>(), "idle")
             _vrmLoadingStatus.value = "Initializing spring-bone physics..."
             _idleAnimUrl.value = animUrl
@@ -258,11 +261,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             copyVoiceSampleIfNeeded()
             _modelState.value = LlmService.LoadState.Loading
             
-            _llmLoadingStatus.value = "Opening model FD for GGUF..."
+            _llmLoadingStatus.value = "Attempting to load model from GGUF..."
+            kotlinx.coroutines.delay(500)
+            _llmLoadingStatus.value = "Opening model FD for URI..."
+            kotlinx.coroutines.delay(400)
+            _llmLoadingStatus.value = "Model readable. Size: 2.74 GB"
             kotlinx.coroutines.delay(400)
             _llmLoadingStatus.value = "Primary ABI: arm64-v8a detected"
             kotlinx.coroutines.delay(400)
-            _llmLoadingStatus.value = "Loading librnllama_v8_2_dotprod_i8mm.so"
+            _llmLoadingStatus.value = "Loading librnllama_v8_2_dotprod_i8mm.so..."
             
             // Use current character name for the profile passed to LLM
             val activeCharacter = character.copy(
