@@ -39,7 +39,7 @@ fun defaultCharacter(filesDir: File) = CharacterProfile(
         STRICT RULES:
         Keep responses to 1-3 sentences MAX. Text message style.
         Speak casually. No essays, no philosophizing, no formal AI talk.
-        Respond ONLY in plain text. NEVER use <think> tags or internal monologue and don't start drafting responses.
+        NEVER draft responses or analyse the request, and don't overthink stuff if its not necessary
     """.trimIndent(),
     modelPath       = File(File(filesDir, ModelConfig.MODEL_DIR), ModelConfig.MODEL_FILENAME).absolutePath,
     voiceSamplePath = File(File(filesDir, AudioConfig.VOICE_SAMPLE_DIR), AudioConfig.VOICE_SAMPLE_FILE).absolutePath,
@@ -47,7 +47,7 @@ fun defaultCharacter(filesDir: File) = CharacterProfile(
     ttsLang         = "en-us",
     
     // Default inference settings for Aria
-    temperature   = 0.7f,
+    temperature   = 0.8f,
     maxTokens     = 512,
     repeatPenalty = 1.1f,
     skipThinking  = true

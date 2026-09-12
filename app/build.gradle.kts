@@ -11,10 +11,10 @@ android {
 
     defaultConfig {
         applicationId = "com.ttt.companion"
-        minSdk = 26
+        minSdk = 27
         targetSdk = 36
         versionCode = 5
-        versionName = "2026-09-08A"
+        versionName = "2026-09-12A"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -46,6 +46,9 @@ android {
     }
 
     packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
@@ -85,6 +88,7 @@ dependencies {
     implementation("io.github.ljcamargo:llamacpp-kotlin:0.4.0")
     implementation("com.github.k2-fsa:sherpa-onnx:v1.13.0")
     implementation("androidx.compose.material:material-icons-extended")
+    implementation("com.qualcomm.qti:geniex-android:0.4.0")
 
 
 

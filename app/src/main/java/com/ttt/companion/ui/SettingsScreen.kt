@@ -27,15 +27,18 @@ private val PANEL_BG = Color(0xCC000000)
 fun SettingsScreen(viewModel: MainViewModel) {
     val contextSize by viewModel.customContextSize.collectAsStateWithLifecycle()
     val useLegacyTest by viewModel.useLegacyTestScreen.collectAsStateWithLifecycle()
+    val showStats by viewModel.showPerformanceStats.collectAsStateWithLifecycle()
 
     SettingsScreenContent(
         contextSize = contextSize,
         useLegacyTest = useLegacyTest,
+        showStats = showStats,
         onBackClick = { viewModel.setScreen(MainViewModel.Screen.VRM) },
         onRestartLlmClick = { viewModel.restartLlm() },
         onRestartVrmClick = { viewModel.restartVrmEngine() },
         onSaveLlmSettings = { viewModel.saveLlmSettings(it) },
-        onToggleLegacyTest = { viewModel.setLegacyTestScreen(it) }
+        onToggleLegacyTest = { viewModel.setLegacyTestScreen(it) },
+        onToggleShowStats = { viewModel.setShowPerformanceStats(it) }
     )
 }
 
@@ -44,11 +47,13 @@ fun SettingsScreen(viewModel: MainViewModel) {
 fun SettingsScreenContent(
     contextSize: Int,
     useLegacyTest: Boolean,
+    showStats: Boolean,
     onBackClick: () -> Unit,
     onRestartLlmClick: () -> Unit,
     onRestartVrmClick: () -> Unit,
     onSaveLlmSettings: (Int) -> Unit,
-    onToggleLegacyTest: (Boolean) -> Unit
+    onToggleLegacyTest: (Boolean) -> Unit,
+    onToggleShowStats: (Boolean) -> Unit
 ) {
     var localContextSize by remember(contextSize) { mutableIntStateOf(contextSize) }
 
@@ -146,23 +151,40 @@ fun SettingsScreenContent(
             }
 
             SettingsSection(title = "Experimental") {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Legacy 2D TestScreen", color = Color.White, fontSize = 14.sp)
-                        Text("Use the debug interface for 2D mode. Requires reboot.", color = Color.Gray, fontSize = 11.sp)
-                    }
-                    Switch(
-                        checked = useLegacyTest,
-                        onCheckedChange = onToggleLegacyTest,
-                        colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF6699FF))
-                    )
-                }
+                ToggleOption(
+                    title = "Show Performance Stats",
+                    subtitle = "Display inference time and speed below messages.",
+                    checked = showStats,
+                    onCheckedChange = onToggleShowStats
+                )
+                
+                ToggleOption(
+                    title = "Legacy 2D TestScreen",
+                    subtitle = "Use the debug interface for 2D mode. Requires reboot.",
+                    checked = useLegacyTest,
+                    onCheckedChange = onToggleLegacyTest
+                )
             }
         }
+    }
+}
+
+@Composable
+fun ToggleOption(title: String, subtitle: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = Color.White, fontSize = 14.sp)
+            Text(subtitle, color = Color.Gray, fontSize = 11.sp)
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF6699FF))
+        )
     }
 }
 

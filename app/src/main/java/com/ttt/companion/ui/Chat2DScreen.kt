@@ -40,18 +40,24 @@ fun Chat2DScreen(viewModel: MainViewModel) {
     val isLoading    by viewModel.isLoading.collectAsStateWithLifecycle()
     val modelState   by viewModel.modelState.collectAsStateWithLifecycle()
     val characterName by viewModel.customName.collectAsStateWithLifecycle()
+    val userName     by viewModel.userName.collectAsStateWithLifecycle()
     val isSpeaking   by viewModel.isSpeaking.collectAsStateWithLifecycle()
     val audioState   by viewModel.audioState.collectAsStateWithLifecycle()
     val llmStatus    by viewModel.llmLoadingStatus.collectAsStateWithLifecycle()
+    val showStats    by viewModel.showPerformanceStats.collectAsStateWithLifecycle()
 
     Chat2DScreenContent(
         messages = messages,
         isLoading = isLoading,
         modelState = modelState,
         characterName = characterName,
+        userName = userName,
         isSpeaking = isSpeaking,
         audioState = audioState,
         llmStatus = llmStatus,
+        engineName = viewModel.engineName,
+        computeUnit = viewModel.computeUnit,
+        showStats = showStats,
         onSendMessage = { viewModel.sendMessage(it) },
         onToggleMic = { viewModel.toggleMic() },
         onSetScreen = { viewModel.setScreen(it) }
@@ -65,9 +71,13 @@ fun Chat2DScreenContent(
     isLoading: Boolean,
     modelState: LlmService.LoadState,
     characterName: String,
+    userName: String,
     isSpeaking: Boolean,
     audioState: MainViewModel.AudioState,
     llmStatus: String,
+    engineName: String,
+    computeUnit: String,
+    showStats: Boolean,
     onSendMessage: (String) -> Unit,
     onToggleMic: () -> Unit,
     onSetScreen: (MainViewModel.Screen) -> Unit
@@ -86,6 +96,9 @@ fun Chat2DScreenContent(
         ),
         label = "alpha"
     )
+    
+    // Static alpha for when the LLM is busy (to save GPU cycles)
+    val displayAlpha = if (isLoading) 1f else pulseAlpha
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
@@ -105,9 +118,9 @@ fun Chat2DScreenContent(
                 Spacer(Modifier.height(16.dp))
 
                 NavigationDrawerItem(
-                    label = { Text("YOU", color = Color.White) },
+                    label = { Text(userName.uppercase(), color = Color.White) },
                     selected = false,
-                    onClick = { scope.launch { drawerState.close() } },
+                    onClick = { scope.launch { drawerState.close(); onSetScreen(MainViewModel.Screen.USER) } },
                     icon = { Icon(Icons.Default.Person, null, tint = Color(0xFF6699FF)) },
                     colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent),
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
@@ -128,6 +141,22 @@ fun Chat2DScreenContent(
                     colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent),
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                 )
+
+                Spacer(Modifier.weight(1f))
+
+                // Debug / System Info Section
+                Column(
+                    modifier = Modifier
+                        .padding(28.dp)
+                        .alpha(0.6f)
+                ) {
+                    Text("SYSTEM INFO", color = Color(0xFF6699FF), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                    Spacer(Modifier.height(4.dp))
+                    Text("Engine: $engineName", color = Color.White, fontSize = 11.sp)
+                    Text("Backend: $computeUnit", color = Color.White, fontSize = 11.sp)
+                    Text("MinSDK: 27 | Target: 36", color = Color.Gray, fontSize = 9.sp)
+                }
+                Spacer(Modifier.height(16.dp))
             }
         }
     ) {
@@ -186,26 +215,26 @@ fun Chat2DScreenContent(
                         ) {
                             items(messages) { msg ->
                                 val isUser = msg.role == "user"
-                                ChatBubble(msg.content, isUser, characterName)
+                                ChatBubble(msg, isUser, characterName, userName, showStats)
                             }
                             if (isLoading) {
                                 item {
-                                    StatusIndicator("$characterName is thinking...", Color(0xFF6699FF), pulseAlpha)
+                                    StatusIndicator("$characterName is thinking...", Color(0xFF6699FF), displayAlpha)
                                 }
                             }
                             if (audioState is MainViewModel.AudioState.Speaking) {
                                 item {
-                                    StatusIndicator("$characterName is speaking...", Color(0xFFFF6666), pulseAlpha, Icons.AutoMirrored.Filled.VolumeUp)
+                                    StatusIndicator("$characterName is speaking...", Color(0xFFFF6666), displayAlpha, Icons.AutoMirrored.Filled.VolumeUp)
                                 }
                             }
                             if (audioState is MainViewModel.AudioState.Recording) {
                                 item {
-                                    StatusIndicator("Listening...", Color(0xFFFF4444), pulseAlpha)
+                                    StatusIndicator("Listening...", Color(0xFFFF4444), displayAlpha)
                                 }
                             }
                             if (audioState is MainViewModel.AudioState.Transcribing) {
                                 item {
-                                    StatusIndicator("Transcribing...", Color(0xFFB0C8FF), pulseAlpha)
+                                    StatusIndicator("Transcribing...", Color(0xFFB0C8FF), displayAlpha)
                                 }
                             }
                         }
@@ -226,7 +255,7 @@ fun Chat2DScreenContent(
                                             .padding(20.dp),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Icon(Icons.Default.Memory, null, tint = Color(0xFF6699FF), modifier = Modifier.size(40.dp).alpha(pulseAlpha))
+                                        Icon(Icons.Default.Memory, null, tint = Color(0xFF6699FF), modifier = Modifier.size(40.dp).alpha(displayAlpha))
                                     }
                                     Spacer(Modifier.height(24.dp))
                                     Text("IGNITING LOCAL AI", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
@@ -303,13 +332,25 @@ fun Chat2DScreenContent(
 }
 
 @Composable
-fun ChatBubble(content: String, isUser: Boolean, charName: String) {
+fun ChatBubble(
+    msg: com.ttt.companion.model.ChatMessage, 
+    isUser: Boolean, 
+    charName: String,
+    userName: String,
+    showStats: Boolean
+) {
+    var showDetail by remember { mutableStateOf(false) }
+
+    if (showDetail && msg.performanceStats != null) {
+        PerformanceStatsDialog(msg.performanceStats) { showDetail = false }
+    }
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
     ) {
         Text(
-            text = if (isUser) "YOU" else charName.uppercase(),
+            text = if (isUser) userName.uppercase() else charName.uppercase(),
             color = if (isUser) Color(0xFF6699FF) else Color(0xFFFF6666),
             fontSize = 10.sp,
             fontWeight = FontWeight.Bold,
@@ -326,12 +367,55 @@ fun ChatBubble(content: String, isUser: Boolean, charName: String) {
             border = if (isUser) BorderStroke(1.dp, Color(0xFF6699FF).copy(alpha = 0.3f)) else null
         ) {
             Text(
-                text = content,
+                text = msg.content,
                 color = Color.White,
                 fontSize = 14.sp,
                 modifier = Modifier.padding(12.dp)
             )
         }
+
+        if (!isUser && showStats && msg.performanceStats != null) {
+            Text(
+                text = "${msg.performanceStats.totalTime}ms | ${"%.1f".format(msg.performanceStats.tokensPerSec)} t/s",
+                color = Color.Gray,
+                fontSize = 9.sp,
+                modifier = Modifier
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                    .clickable { showDetail = true }
+            )
+        }
+    }
+}
+
+@Composable
+fun PerformanceStatsDialog(stats: com.ttt.companion.model.PerformanceStats, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF1A1A2E),
+        title = { Text("Inference Details", color = Color.White, fontSize = 18.sp) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                StatRow("Engine", stats.engine)
+                StatRow("Backend", stats.backend)
+                StatRow("Time to First Token", "${stats.ttft}ms")
+                StatRow("Total Generation Time", "${stats.totalTime}ms")
+                StatRow("Token Count", "${stats.tokenCount}")
+                StatRow("Average Speed", "${"%.2f".format(stats.tokensPerSec)} tok/s")
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("CLOSE", color = Color(0xFF6699FF))
+            }
+        }
+    )
+}
+
+@Composable
+fun StatRow(label: String, value: String) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label, color = Color.Gray, fontSize = 12.sp)
+        Text(value, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
     }
 }
 

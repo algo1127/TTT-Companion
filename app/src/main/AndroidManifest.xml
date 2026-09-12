@@ -33,6 +33,7 @@
     </queries>
 
     <application
+        android:extractNativeLibs="true"
         android:largeHeap="true"
         android:name=".CompanionApp"
         android:allowBackup="true"

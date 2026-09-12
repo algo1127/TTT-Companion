@@ -17,6 +17,7 @@ fun GodotVrmView(
     idleAnimPath: String?,
     isSpeaking: Boolean,
     isCameraLocked: Boolean,
+    isGenerating: Boolean = false,
     initialCameraData: FloatArray?,
     modifier: Modifier = Modifier,
     onLoaded: () -> Unit = {},
@@ -51,7 +52,14 @@ fun GodotVrmView(
             }
         },
         modifier = modifier.fillMaxSize(),
-        update = { _ -> }
+        update = { _ -> 
+            val fragment = fragmentManager.findFragmentByTag("godot_fragment") as? GodotFragment
+            if (isGenerating) {
+                fragment?.onPause()
+            } else {
+                fragment?.onResume()
+            }
+        }
     )
 
     // Keep godotFragment synced with the fragment manager

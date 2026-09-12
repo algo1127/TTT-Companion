@@ -1,28 +1,39 @@
 package com.ttt.companion.tools
 
 /**
- * Plain-text tool descriptions injected into the system prompt.
- * Small models follow this pattern reliably — much simpler than
- * native function-calling APIs which not all GGUF models support well.
+ * Modular tool definitions to support dynamic injection (Lazy Loading).
  */
 object ToolDefinitions {
 
-    val SYSTEM_PROMPT_ADDITION = """
-        You have access to these tools. To use one, output a single line
+    const val CORE_INSTRUCTIONS = """
+        You have access to internal tools. To use one, output a single line
         in this EXACT format and nothing else on that line:
         TOOL_CALL: {"tool": "tool_name", "args": {...}}
-        Available tools:
-        - set_alarm: {"hour": 0-23, "minute": 0-59, "label": "string"}
-        - set_timer: {"seconds": number, "label": "string"}
-        - toggle_torch: {"on": boolean}
-        - vibrate: {"duration_ms": number}
-        - open_app: {"package_name": "string"} (use common names like "youtube", "maps", "gmail", "camera", "browser")
         After a TOOL_CALL line, you may continue with a normal response
         acknowledging what you did. Only use a tool when the user clearly
-        asks for one — for normal conversation, never output TOOL_CALL.
-        Example:
-        User: wake me up at 7am for the gym
-        You: TOOL_CALL: {"tool": "set_alarm", "args": {"hour": 7, "minute": 0, "label": "gym"}}
-        Sure thing, I've set an alarm for 7 AM. Don't snooze it too much!
-    """.trimIndent()
+        asks for one.
+    """
+
+    val TOOL_SCHEMAS = mapOf(
+        "alarm" to "- set_alarm: {\"hour\": 0-23, \"minute\": 0-59, \"label\": \"string\"}",
+        "timer" to "- set_timer: {\"seconds\": number, \"label\": \"string\"}",
+        "torch" to "- toggle_torch: {\"on\": boolean}",
+        "vibrate" to "- vibrate: {\"duration_ms\": number}",
+        "apps" to "- open_app: {\"package_name\": \"string\"} (use common names like \"youtube\", \"maps\", \"gmail\", \"camera\", \"browser\")"
+    )
+
+    fun getDynamicPrompt(requestedTools: Set<String>): String {
+        if (requestedTools.isEmpty()) return ""
+        
+        return buildString {
+            append(CORE_INSTRUCTIONS.trimIndent())
+            append("\nAvailable tools:\n")
+            requestedTools.forEach { key ->
+                TOOL_SCHEMAS[key]?.let { append(it).append("\n") }
+            }
+        }
+    }
+
+    @Deprecated("Use getDynamicPrompt instead", ReplaceWith("getDynamicPrompt(TOOL_SCHEMAS.keys)"))
+    val SYSTEM_PROMPT_ADDITION = getDynamicPrompt(TOOL_SCHEMAS.keys)
 }

@@ -50,17 +50,20 @@ class MemoryManager(context: Context) {
         """.trimIndent()
 
         try {
-            val summary = llm.chat(
+            val result = llm.chat(
                 history = history,
-                systemPrompt = summarizerPrompt
+                systemPrompt = summarizerPrompt,
+                characterId = characterId,
+                userName = "User",
+                forceCpu = true
             )
 
-            if (summary.isNotBlank()) {
+            if (result.text.isNotBlank()) {
                 dao.insert(
                     MemoryEntry(
                         characterId = characterId,
                         timestamp = System.currentTimeMillis(),
-                        summary = summary
+                        summary = result.text
                     )
                 )
             }

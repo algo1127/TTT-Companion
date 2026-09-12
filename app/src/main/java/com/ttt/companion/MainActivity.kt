@@ -29,6 +29,7 @@ import com.ttt.companion.ui.CharacterScreen
 import com.ttt.companion.ui.SettingsScreen
 import com.ttt.companion.ui.AppModeSelectionScreen
 import com.ttt.companion.ui.Chat2DScreen
+import com.ttt.companion.ui.UserScreen
 import com.ttt.companion.ui.TestScreen
 import org.godotengine.godot.Godot
 import org.godotengine.godot.GodotHost
@@ -129,6 +130,14 @@ class MainActivity : FragmentActivity(), GodotHost {
                                 exit = fadeOut() + slideOutHorizontally()
                             ) {
                                 SettingsScreen(viewModel)
+                            }
+
+                            AnimatedVisibility(
+                                visible = currentScreen == MainViewModel.Screen.USER,
+                                enter = fadeIn() + slideInHorizontally(),
+                                exit = fadeOut() + slideOutHorizontally()
+                            ) {
+                                UserScreen(viewModel)
                             }
                         }
                     }

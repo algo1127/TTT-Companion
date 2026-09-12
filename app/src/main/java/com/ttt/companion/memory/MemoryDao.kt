@@ -12,6 +12,9 @@ interface MemoryDao {
     @Query("SELECT * FROM memory_entries WHERE characterId = :characterId ORDER BY timestamp DESC LIMIT :limit")
     suspend fun getRecent(characterId: String, limit: Int = 5): List<MemoryEntry>
 
+    @Query("SELECT * FROM memory_entries WHERE characterId = :characterId ORDER BY timestamp DESC")
+    suspend fun getAll(characterId: String): List<MemoryEntry>
+
     @Query("SELECT COUNT(*) FROM memory_entries WHERE characterId = :characterId")
     suspend fun count(characterId: String): Int
 }

@@ -67,7 +67,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     )
     val useLegacyTestScreen = _useLegacyTestScreen.asStateFlow()
 
-    enum class Screen { VRM, SETTINGS, PROFILE, CHARACTER, TEST }
+    private val _userName = MutableStateFlow(
+        app.getSharedPreferences("user_prefs", Application.MODE_PRIVATE)
+            .getString("user_name", "User") ?: "User"
+    )
+    val userName = _userName.asStateFlow()
+
+    enum class Screen { VRM, SETTINGS, PROFILE, CHARACTER, TEST, USER }
     private val _currentScreen = MutableStateFlow(Screen.VRM)
     val currentScreen = _currentScreen.asStateFlow()
 
@@ -114,6 +120,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .getInt("llm_context_size", 4096)
     )
     val customContextSize = _customContextSize.asStateFlow()
+
+    private val _showPerformanceStats = MutableStateFlow(
+        app.getSharedPreferences("debug_prefs", Application.MODE_PRIVATE)
+            .getBoolean("show_perf_stats", true)
+    )
+    val showPerformanceStats = _showPerformanceStats.asStateFlow()
 
     // --- Voice Lab (Blending) ---
     private val _useBlending = MutableStateFlow(
@@ -163,6 +175,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _llmLoadingStatus = MutableStateFlow("Initializing system...")
     val llmLoadingStatus = _llmLoadingStatus.asStateFlow()
+
+    val engineName: String get() = llm.engineName
+    val computeUnit: String get() = llm.computeUnit
 
     private val _vrmLoadingStatus = MutableStateFlow("Waking engine...")
     val vrmLoadingStatus = _vrmLoadingStatus.asStateFlow()
@@ -338,12 +353,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
         viewModelScope.launch {
             try {
-                val rawResponse = llm.chat(updatedHistory, fullSystemPrompt)
+                val chatResult = llm.chat(
+                    history = updatedHistory, 
+                    systemPrompt = fullSystemPrompt, 
+                    characterId = character.id,
+                    userName = _userName.value
+                )
+                val rawResponse = chatResult.text
                 val parseResult = com.ttt.companion.tools.ToolCallParser.parse(rawResponse)
                 parseResult.toolCall?.let { toolRouter.execute(it) }
 
                 val response = parseResult.cleanedResponse
-                val assistantMsg = ChatMessage(role = "assistant", content = response)
+                val assistantMsg = ChatMessage(
+                    role = "assistant", 
+                    content = response,
+                    performanceStats = chatResult.stats
+                )
                 _messages.value = updatedHistory + assistantMsg
                 _isLoading.value = false
 
@@ -501,7 +526,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun buildFullPrompt(name: String, body: String): String {
         val mandatoryLine = "You are $name, a local AI running on the user's mobile phone."
-        return mandatoryLine + "\n" + body + "\n\n" + com.ttt.companion.tools.ToolDefinitions.SYSTEM_PROMPT_ADDITION
+        return mandatoryLine + "\n" + body
     }
 
     fun saveCharacterSettings(
@@ -587,6 +612,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .apply()
         
         restartLlm()
+    }
+
+    fun saveUserName(name: String) {
+        _userName.value = name
+        getApplication<Application>().getSharedPreferences("user_prefs", Application.MODE_PRIVATE)
+            .edit()
+            .putString("user_name", name)
+            .apply()
+    }
+
+    fun setShowPerformanceStats(enabled: Boolean) {
+        _showPerformanceStats.value = enabled
+        getApplication<Application>().getSharedPreferences("debug_prefs", Application.MODE_PRIVATE)
+            .edit()
+            .putBoolean("show_perf_stats", enabled)
+            .apply()
     }
 
     // --- Camera Management --------------------------------------------------

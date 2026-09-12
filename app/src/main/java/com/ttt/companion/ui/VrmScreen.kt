@@ -48,16 +48,19 @@ fun VrmScreen(viewModel: MainViewModel) {
     val vrmLoading   by viewModel.vrmLoading.collectAsStateWithLifecycle()
     val isCameraLocked by viewModel.isCameraLocked.collectAsStateWithLifecycle()
     val characterName by viewModel.customName.collectAsStateWithLifecycle()
+    val userName     by viewModel.userName.collectAsStateWithLifecycle()
     val isSpeaking   by viewModel.isSpeaking.collectAsStateWithLifecycle()
     val audioState   by viewModel.audioState.collectAsStateWithLifecycle()
     val llmStatus    by viewModel.llmLoadingStatus.collectAsStateWithLifecycle()
     val vrmStatus    by viewModel.vrmLoadingStatus.collectAsStateWithLifecycle()
+    val showStats    by viewModel.showPerformanceStats.collectAsStateWithLifecycle()
 
     val cameraData   = remember { viewModel.loadCameraPosition() }
 
     VrmScreenContent(
         messages = messages,
         isLoading = isLoading,
+        isGenerating = isLoading,
         modelState = modelState,
         vrmUrl = vrmUrl,
         idleAnimUrl = idleAnimUrl,
@@ -65,10 +68,14 @@ fun VrmScreen(viewModel: MainViewModel) {
         vrmLoading = vrmLoading,
         isCameraLocked = isCameraLocked,
         characterName = characterName,
+        userName = userName,
         isSpeaking = isSpeaking,
         audioState = audioState,
         llmStatus = llmStatus,
         vrmStatus = vrmStatus,
+        engineName = viewModel.engineName,
+        computeUnit = viewModel.computeUnit,
+        showStats = showStats,
         cameraData = cameraData,
         onSendMessage = { viewModel.sendMessage(it) },
         onToggleMic = { viewModel.toggleMic() },
@@ -87,6 +94,7 @@ fun VrmScreen(viewModel: MainViewModel) {
 fun VrmScreenContent(
     messages: List<com.ttt.companion.model.ChatMessage>,
     isLoading: Boolean,
+    isGenerating: Boolean,
     modelState: LlmService.LoadState,
     vrmUrl: String?,
     idleAnimUrl: String?,
@@ -94,10 +102,14 @@ fun VrmScreenContent(
     vrmLoading: Boolean,
     isCameraLocked: Boolean,
     characterName: String,
+    userName: String,
     isSpeaking: Boolean,
     audioState: MainViewModel.AudioState,
     llmStatus: String,
     vrmStatus: String,
+    engineName: String,
+    computeUnit: String,
+    showStats: Boolean,
     cameraData: FloatArray?,
     onSendMessage: (String) -> Unit,
     onToggleMic: () -> Unit,
@@ -155,9 +167,9 @@ fun VrmScreenContent(
                 Spacer(Modifier.height(16.dp))
 
                 NavigationDrawerItem(
-                    label = { Text("YOU", color = Color.White) },
+                    label = { Text(userName.uppercase(), color = Color.White) },
                     selected = false,
-                    onClick = { scope.launch { drawerState.close() } },
+                    onClick = { scope.launch { drawerState.close(); onSetScreen(MainViewModel.Screen.USER) } },
                     icon = { Icon(Icons.Default.Person, null, tint = Color(0xFF6699FF)) },
                     colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent),
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
@@ -178,6 +190,22 @@ fun VrmScreenContent(
                     colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent),
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                 )
+
+                Spacer(Modifier.weight(1f))
+
+                // Debug / System Info Section
+                Column(
+                    modifier = Modifier
+                        .padding(28.dp)
+                        .alpha(0.6f)
+                ) {
+                    Text("SYSTEM INFO", color = Color(0xFF6699FF), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                    Spacer(Modifier.height(4.dp))
+                    Text("Engine: $engineName", color = Color.White, fontSize = 11.sp)
+                    Text("Backend: $computeUnit", color = Color.White, fontSize = 11.sp)
+                    Text("MinSDK: 27 | Target: 36", color = Color.Gray, fontSize = 9.sp)
+                }
+                Spacer(Modifier.height(16.dp))
             }
         }
     ) {
@@ -190,6 +218,7 @@ fun VrmScreenContent(
                     idleAnimPath = idleAnimUrl,
                     isSpeaking = isSpeaking,
                     isCameraLocked = isCameraLocked,
+                    isGenerating = isGenerating,
                     initialCameraData = cameraData,
                     modifier = Modifier.fillMaxSize(),
                     onLoaded = onVrmLoaded,
@@ -274,7 +303,33 @@ fun VrmScreenContent(
                     ) {
                         items(messages) { msg ->
                             val isUser = msg.role == "user"
-                            Text(text = "${if (isUser) "You" else characterName}: ${msg.content}", color = if (isUser) Color.White else Color(0xFFB0C8FF), fontSize = 13.sp, modifier = Modifier.fillMaxWidth(), textAlign = if (isUser) TextAlign.End else TextAlign.Start)
+                            
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Text(
+                                    text = "${if (isUser) userName else characterName}: ${msg.content}", 
+                                    color = if (isUser) Color.White else Color(0xFFB0C8FF), 
+                                    fontSize = 13.sp, 
+                                    modifier = Modifier.fillMaxWidth(), 
+                                    textAlign = if (isUser) TextAlign.End else TextAlign.Start
+                                )
+                                
+                                if (!isUser && showStats && msg.performanceStats != null) {
+                                    var showDetail by remember { mutableStateOf(false) }
+                                    if (showDetail) {
+                                        PerformanceStatsDialog(msg.performanceStats) { showDetail = false }
+                                    }
+                                    
+                                    Text(
+                                        text = "${msg.performanceStats.totalTime}ms | ${"%.1f".format(msg.performanceStats.tokensPerSec)} t/s",
+                                        color = Color(0xFF6699FF).copy(alpha = 0.7f),
+                                        fontSize = 9.sp,
+                                        modifier = Modifier
+                                            .align(Alignment.Start)
+                                            .padding(top = 2.dp)
+                                            .clickable { showDetail = true }
+                                    )
+                                }
+                            }
                         }
                         if (isLoading) {
                             item {
