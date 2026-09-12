@@ -28,17 +28,24 @@ fun SettingsScreen(viewModel: MainViewModel) {
     val contextSize by viewModel.customContextSize.collectAsStateWithLifecycle()
     val useLegacyTest by viewModel.useLegacyTestScreen.collectAsStateWithLifecycle()
     val showStats by viewModel.showPerformanceStats.collectAsStateWithLifecycle()
+    val presencePenalty by viewModel.presencePenalty.collectAsStateWithLifecycle()
+    val keepOldModels by viewModel.keepOldModels.collectAsStateWithLifecycle()
 
     SettingsScreenContent(
         contextSize = contextSize,
         useLegacyTest = useLegacyTest,
         showStats = showStats,
+        presencePenalty = presencePenalty,
+        keepOldModels = keepOldModels,
         onBackClick = { viewModel.setScreen(MainViewModel.Screen.VRM) },
         onRestartLlmClick = { viewModel.restartLlm() },
         onRestartVrmClick = { viewModel.restartVrmEngine() },
         onSaveLlmSettings = { viewModel.saveLlmSettings(it) },
         onToggleLegacyTest = { viewModel.setLegacyTestScreen(it) },
-        onToggleShowStats = { viewModel.setShowPerformanceStats(it) }
+        onToggleShowStats = { viewModel.setShowPerformanceStats(it) },
+        onPresencePenaltyChange = { viewModel.setPresencePenalty(it) },
+        onToggleKeepModels = { viewModel.setKeepOldModels(it) },
+        onSwitchModelsClick = { viewModel.enterDownloadMode() }
     )
 }
 
@@ -48,12 +55,17 @@ fun SettingsScreenContent(
     contextSize: Int,
     useLegacyTest: Boolean,
     showStats: Boolean,
+    presencePenalty: Float,
+    keepOldModels: Boolean,
     onBackClick: () -> Unit,
     onRestartLlmClick: () -> Unit,
     onRestartVrmClick: () -> Unit,
     onSaveLlmSettings: (Int) -> Unit,
     onToggleLegacyTest: (Boolean) -> Unit,
-    onToggleShowStats: (Boolean) -> Unit
+    onToggleShowStats: (Boolean) -> Unit,
+    onPresencePenaltyChange: (Float) -> Unit,
+    onToggleKeepModels: (Boolean) -> Unit,
+    onSwitchModelsClick: () -> Unit
 ) {
     var localContextSize by remember(contextSize) { mutableIntStateOf(contextSize) }
 
@@ -124,10 +136,52 @@ fun SettingsScreenContent(
                     ) {
                         Text("Apply & Restart LLM")
                     }
+
+                    Spacer(Modifier.height(16.dp))
+
+                    // Reasoning / Presence Penalty
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Reasoning Budget", color = Color.White, fontSize = 14.sp)
+                        Text("%.2f".format(presencePenalty), color = Color(0xFFFF6666), fontWeight = FontWeight.Bold)
+                    }
+                    Slider(
+                        value = presencePenalty,
+                        onValueChange = { onPresencePenaltyChange(it) },
+                        valueRange = 0f..2f,
+                        colors = SliderDefaults.colors(thumbColor = Color(0xFFFF6666))
+                    )
+                    Text(
+                        "Higher values (0.6+) nudge Aria to finish internal reasoning faster.",
+                        color = Color.Gray,
+                        fontSize = 11.sp,
+                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                    )
                 }
             }
 
             SettingsSection(title = "Service Management") {
+                ServiceButton(
+                    label = "Switch STT Models",
+                    icon = Icons.Default.Refresh,
+                    onClick = onSwitchModelsClick,
+                    color = Color(0xFF6699FF)
+                )
+
+                Spacer(Modifier.height(8.dp))
+
+                ToggleOption(
+                    title = "Keep Old Models",
+                    subtitle = "Don't delete previous Whisper variants when switching.",
+                    checked = keepOldModels,
+                    onCheckedChange = onToggleKeepModels
+                )
+
+                Spacer(Modifier.height(16.dp))
+
                 ServiceButton(
                     label = "Restart LLM Service",
                     icon = Icons.Default.Memory,

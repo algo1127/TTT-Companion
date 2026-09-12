@@ -23,6 +23,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import com.ttt.companion.llm.DownloadState
 import com.ttt.companion.ui.MainViewModel
+import com.ttt.companion.ui.DownloadScreen
 import com.ttt.companion.ui.SetupScreen
 import com.ttt.companion.ui.VrmScreen
 import com.ttt.companion.ui.CharacterScreen
@@ -137,12 +138,12 @@ class MainActivity : FragmentActivity(), GodotHost {
                                 enter = fadeIn() + slideInHorizontally(),
                                 exit = fadeOut() + slideOutHorizontally()
                             ) {
-                                UserScreen(viewModel)
+                                UserScreen(viewModel, onBackClick = { viewModel.setScreen(MainViewModel.Screen.VRM) })
                             }
                         }
                     }
                 } else {
-                    SetupScreen(viewModel)
+                    DownloadScreen(viewModel, onFinish = { /* Handled by state change */ })
                 }
             }
         }

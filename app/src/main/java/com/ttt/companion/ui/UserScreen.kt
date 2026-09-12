@@ -21,7 +21,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun UserScreen(viewModel: MainViewModel) {
+fun UserScreen(viewModel: MainViewModel, onBackClick: () -> Unit) {
     val currentName by viewModel.userName.collectAsStateWithLifecycle()
     var nameInput by remember(currentName) { mutableStateOf(currentName) }
 
@@ -38,7 +38,7 @@ fun UserScreen(viewModel: MainViewModel) {
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = { viewModel.setScreen(MainViewModel.Screen.VRM) }) {
+                    IconButton(onClick = onBackClick) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
                     }
                 },
@@ -98,7 +98,7 @@ fun UserScreen(viewModel: MainViewModel) {
             Button(
                 onClick = { 
                     viewModel.saveUserName(nameInput)
-                    viewModel.setScreen(MainViewModel.Screen.VRM)
+                    onBackClick()
                 },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 enabled = nameInput.isNotBlank() && nameInput != currentName,

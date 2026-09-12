@@ -88,6 +88,7 @@ class GenieXEngine(private val context: Context) : LlmEngine {
         val samplerConfig = SamplerConfig(
             temperature = profile.temperature,
             repetitionPenalty = 1.1f, // Standard penalty
+            presencePenalty = profile.presencePenalty,
             topP = 0.95f
         )
         

@@ -21,6 +21,7 @@ data class CharacterProfile(
     val temperature: Float = 0.7f,
     val maxTokens: Int = 512,
     val repeatPenalty: Float = 1.1f,
+    val presencePenalty: Float = 0.6f,
     val skipThinking: Boolean = false
 )
 

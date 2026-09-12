@@ -2,26 +2,113 @@ package com.ttt.companion.audio
 
 /**
  * Single source of truth for audio model identity (STT + TTS).
+ * Now supports multiple Whisper variants and checksum verification.
  */
 object AudioConfig {
 
-    // --- STT — Whisper tiny.en INT8 -----------------------------------------
+    // --- STT Whisper Registry -----------------------------------------------
 
-    const val STT_DIR          = "models/whisper-tiny-en"
-    const val STT_ENCODER_FILE = "encoder.int8.onnx"
-    const val STT_DECODER_FILE = "decoder.int8.onnx"
-    const val STT_TOKENS_FILE  = "tokens.txt"
-    const val STT_DISPLAY_SIZE = "~87 MB"
+    data class WhisperVariant(
+        val id: String,
+        val displayName: String,
+        val description: String,
+        val sizeLabel: String,
+        val isMultilingual: Boolean,
+        val subDir: String,
+        val files: List<DownloadFile>
+    )
+
+    private const val HF_BASE = "https://huggingface.co/csukuangfj"
     const val STT_SAMPLE_RATE  = 16_000
 
-    private const val STT_HF = "https://huggingface.co/csukuangfj/" +
-            "sherpa-onnx-whisper-tiny.en/resolve/main"
-
-    val STT_FILES = listOf(
-        DownloadFile(STT_ENCODER_FILE, "$STT_HF/tiny.en-encoder.int8.onnx"),
-        DownloadFile(STT_DECODER_FILE, "$STT_HF/tiny.en-decoder.int8.onnx"),
-        DownloadFile(STT_TOKENS_FILE,  "$STT_HF/tiny.en-tokens.txt")
+    val WHISPER_VARIANTS = listOf(
+        WhisperVariant(
+            id = "tiny.en",
+            displayName = "Whisper Tiny (EN)",
+            description = "Fastest, optimized for English. Great for most phones.",
+            sizeLabel = "87 MB",
+            isMultilingual = false,
+            subDir = "models/whisper-tiny-en",
+            files = listOf(
+                DownloadFile("encoder.int8.onnx", "$HF_BASE/sherpa-onnx-whisper-tiny.en/resolve/main/tiny.en-encoder.int8.onnx"),
+                DownloadFile("decoder.int8.onnx", "$HF_BASE/sherpa-onnx-whisper-tiny.en/resolve/main/tiny.en-decoder.int8.onnx"),
+                DownloadFile("tokens.txt",  "$HF_BASE/sherpa-onnx-whisper-tiny.en/resolve/main/tiny.en-tokens.txt")
+            )
+        ),
+        WhisperVariant(
+            id = "base.en",
+            displayName = "Whisper Base (EN)",
+            description = "Better accuracy than Tiny while remaining very fast.",
+            sizeLabel = "145 MB",
+            isMultilingual = false,
+            subDir = "models/whisper-base-en",
+            files = listOf(
+                DownloadFile("encoder.int8.onnx", "$HF_BASE/sherpa-onnx-whisper-base.en/resolve/main/base.en-encoder.int8.onnx"),
+                DownloadFile("decoder.int8.onnx", "$HF_BASE/sherpa-onnx-whisper-base.en/resolve/main/base.en-decoder.int8.onnx"),
+                DownloadFile("tokens.txt",  "$HF_BASE/sherpa-onnx-whisper-base.en/resolve/main/base.en-tokens.txt")
+            )
+        ),
+        WhisperVariant(
+            id = "small",
+            displayName = "Whisper Small",
+            description = "High fidelity. Supports multiple languages.",
+            sizeLabel = "480 MB",
+            isMultilingual = true,
+            subDir = "models/whisper-small",
+            files = listOf(
+                DownloadFile("encoder.int8.onnx", "$HF_BASE/sherpa-onnx-whisper-small/resolve/main/small-encoder.int8.onnx"),
+                DownloadFile("decoder.int8.onnx", "$HF_BASE/sherpa-onnx-whisper-small/resolve/main/small-decoder.int8.onnx"),
+                DownloadFile("tokens.txt",  "$HF_BASE/sherpa-onnx-whisper-small/resolve/main/small-tokens.txt")
+            )
+        ),
+        WhisperVariant(
+            id = "medium",
+            displayName = "Whisper Medium",
+            description = "Professional accuracy. Recommended for powerful devices.",
+            sizeLabel = "1.5 GB",
+            isMultilingual = true,
+            subDir = "models/whisper-medium",
+            files = listOf(
+                DownloadFile("encoder.int8.onnx", "$HF_BASE/sherpa-onnx-whisper-medium/resolve/main/medium-encoder.int8.onnx"),
+                DownloadFile("decoder.int8.onnx", "$HF_BASE/sherpa-onnx-whisper-medium/resolve/main/medium-decoder.int8.onnx"),
+                DownloadFile("tokens.txt",  "$HF_BASE/sherpa-onnx-whisper-medium/resolve/main/medium-tokens.txt")
+            )
+        ),
+        WhisperVariant(
+            id = "turbo",
+            displayName = "Whisper Turbo",
+            description = "Large-v3 quality with Medium-level speed. Best for high-end phones.",
+            sizeLabel = "1.6 GB",
+            isMultilingual = true,
+            subDir = "models/whisper-turbo",
+            files = listOf(
+                DownloadFile("encoder.int8.onnx", "$HF_BASE/sherpa-onnx-whisper-turbo/resolve/main/turbo-encoder.int8.onnx"),
+                DownloadFile("decoder.int8.onnx", "$HF_BASE/sherpa-onnx-whisper-turbo/resolve/main/turbo-decoder.int8.onnx"),
+                DownloadFile("tokens.txt",  "$HF_BASE/sherpa-onnx-whisper-turbo/resolve/main/turbo-tokens.txt")
+            )
+        ),
+        WhisperVariant(
+            id = "large-v3",
+            displayName = "Whisper Large-v3",
+            description = "State-of-the-art accuracy. Very heavy on RAM and GPU.",
+            sizeLabel = "3.0 GB",
+            isMultilingual = true,
+            subDir = "models/whisper-large-v3",
+            files = listOf(
+                DownloadFile("encoder.int8.onnx", "$HF_BASE/sherpa-onnx-whisper-large-v3/resolve/main/large-v3-encoder.int8.onnx"),
+                DownloadFile("decoder.int8.onnx", "$HF_BASE/sherpa-onnx-whisper-large-v3/resolve/main/large-v3-decoder.int8.onnx"),
+                DownloadFile("tokens.txt",  "$HF_BASE/sherpa-onnx-whisper-large-v3/resolve/main/large-v3-tokens.txt")
+            )
+        )
     )
+
+    fun getWhisperVariant(id: String): WhisperVariant = 
+        WHISPER_VARIANTS.find { it.id == id } ?: WHISPER_VARIANTS.first()
+
+    // --- Legacy Constants (Fallback) ----------------------------------------
+    val DEFAULT_WHISPER = WHISPER_VARIANTS.first()
+    val STT_DIR = DEFAULT_WHISPER.subDir
+    val STT_FILES = DEFAULT_WHISPER.files
 
     // --- TTS — Kokoro v1.0 --------------------------------------------------
 
@@ -36,10 +123,9 @@ object AudioConfig {
     const val TTS_LEXICON_ZH    = "lexicon-zh.txt"
     const val TTS_DISPLAY_SIZE  = "~415 MB"
 
-    // Reference sample rate for Kokoro (24kHz)
     const val TTS_REF_SAMPLE_RATE = 24_000
 
-    private const val KOKORO_HF = "https://huggingface.co/csukuangfj/kokoro-multi-lang-v1_0/resolve/main"
+    private const val KOKORO_HF = "$HF_BASE/kokoro-multi-lang-v1_0/resolve/main"
     private const val DATA_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/espeak-ng-data.tar.bz2"
 
     val TTS_FILES = listOf(
@@ -59,5 +145,5 @@ object AudioConfig {
     const val VOICE_SAMPLE_FILE  = "voice_reference.wav"
 }
 
-/** A file that needs to be downloaded: (local filename, remote URL). */
-data class DownloadFile(val filename: String, val url: String)
+/** A file that needs to be downloaded: (local filename, remote URL, optional sha256). */
+data class DownloadFile(val filename: String, val url: String, val sha256: String? = null)

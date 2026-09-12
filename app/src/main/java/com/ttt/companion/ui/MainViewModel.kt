@@ -121,11 +121,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     )
     val customContextSize = _customContextSize.asStateFlow()
 
+    private val _selectedWhisperId = MutableStateFlow(
+        app.getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
+            .getString("whisper_model_id", AudioConfig.DEFAULT_WHISPER.id) ?: AudioConfig.DEFAULT_WHISPER.id
+    )
+    val selectedWhisperId = _selectedWhisperId.asStateFlow()
+
+    private val _keepOldModels = MutableStateFlow(
+        app.getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
+            .getBoolean("keep_old_models", true)
+    )
+    val keepOldModels = _keepOldModels.asStateFlow()
+
     private val _showPerformanceStats = MutableStateFlow(
         app.getSharedPreferences("debug_prefs", Application.MODE_PRIVATE)
             .getBoolean("show_perf_stats", true)
     )
     val showPerformanceStats = _showPerformanceStats.asStateFlow()
+
+    private val _presencePenalty = MutableStateFlow(
+        app.getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
+            .getFloat("presence_penalty", 0.6f)
+    )
+    val presencePenalty = _presencePenalty.asStateFlow()
 
     // --- Voice Lab (Blending) ---
     private val _useBlending = MutableStateFlow(
@@ -232,10 +250,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun allModelsReady(): Boolean =
-        downloader.isModelReady() &&
-                audioDl.areFilesReady(AudioConfig.STT_DIR, AudioConfig.STT_FILES) &&
+    private fun allModelsReady(): Boolean {
+        val whisper = AudioConfig.getWhisperVariant(_selectedWhisperId.value)
+        return downloader.isModelReady() &&
+                audioDl.areFilesReady(whisper.subDir, whisper.files) &&
                 audioDl.areFilesReady(AudioConfig.TTS_DIR, AudioConfig.TTS_FILES)
+    }
 
     // --- Download sequence --------------------------------------------------
 
@@ -245,9 +265,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 downloader.download { state -> _downloadState.value = state }
                 if (_downloadState.value is DownloadState.Failed) return@launch
             }
-            if (!audioDl.areFilesReady(AudioConfig.STT_DIR, AudioConfig.STT_FILES)) {
+            
+            val whisper = AudioConfig.getWhisperVariant(_selectedWhisperId.value)
+            if (!audioDl.areFilesReady(whisper.subDir, whisper.files)) {
                 try {
-                    audioDl.downloadAll(AudioConfig.STT_DIR, AudioConfig.STT_FILES, SetupPhase.STT.displayName) { l, p, r, t ->
+                    audioDl.downloadAll(whisper.subDir, whisper.files, whisper.displayName) { l, p, r, t ->
                         _downloadState.value = DownloadState.Downloading(SetupPhase.STT, l, p, r, t)
                     }
                 } catch (e: Exception) {
@@ -289,7 +311,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             // Use current character name for the profile passed to LLM
             val activeCharacter = character.copy(
                 name = _customName.value,
-                systemPrompt = buildFullPrompt(_customName.value, _customPrompt.value)
+                systemPrompt = buildFullPrompt(_customName.value, _customPrompt.value),
+                presencePenalty = _presencePenalty.value
             )
             
             val llmResult = llm.loadModel(activeCharacter, contextSize = _customContextSize.value)
@@ -302,8 +325,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             if (llmResult is LlmService.LoadState.Error) return@launch
 
             kotlinx.coroutines.delay(500)
-            Log.d(TAG, "Initializing STT...")
-            val sttResult = sttService.init()
+            Log.d(TAG, "Initializing STT with model: ${_selectedWhisperId.value}...")
+            val whisper = AudioConfig.getWhisperVariant(_selectedWhisperId.value)
+            val sttResult = sttService.init(whisper)
             withContext(Dispatchers.Main) { _sttReady.value = sttResult is SttService.LoadState.Ready }
 
             Log.d(TAG, "Initializing TTS with lang: ${_customVoiceLang.value} (blend=${_useBlending.value})...")
@@ -476,6 +500,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .apply()
     }
 
+    fun enterDownloadMode() {
+        _downloadState.value = DownloadState.Idle
+    }
+
     private var vrmLoadedOnce = false
 
     fun skipVrm() {
@@ -627,6 +655,45 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         getApplication<Application>().getSharedPreferences("debug_prefs", Application.MODE_PRIVATE)
             .edit()
             .putBoolean("show_perf_stats", enabled)
+            .apply()
+    }
+
+    fun setPresencePenalty(value: Float) {
+        _presencePenalty.value = value
+        getApplication<Application>().getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
+            .edit()
+            .putFloat("presence_penalty", value)
+            .apply()
+    }
+
+    fun selectWhisperModel(modelId: String) {
+        val oldId = _selectedWhisperId.value
+        if (oldId == modelId) return
+
+        _selectedWhisperId.value = modelId
+        getApplication<Application>().getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
+            .edit()
+            .putString("whisper_model_id", modelId)
+            .apply()
+
+        if (!_keepOldModels.value) {
+            val oldVariant = AudioConfig.getWhisperVariant(oldId)
+            audioDl.deleteModelDir(oldVariant.subDir)
+        }
+        
+        // Return to setup/download if not ready
+        if (!allModelsReady()) {
+            _downloadState.value = DownloadState.Idle
+        } else {
+            restartLlm()
+        }
+    }
+
+    fun setKeepOldModels(enabled: Boolean) {
+        _keepOldModels.value = enabled
+        getApplication<Application>().getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
+            .edit()
+            .putBoolean("keep_old_models", enabled)
             .apply()
     }
 

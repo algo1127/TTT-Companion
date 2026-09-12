@@ -28,12 +28,12 @@ class SttService(private val context: Context) {
     }
 
     /** Load Whisper models from filesDir. Call on IO thread. Returns [LoadState.Ready] on success. */
-    suspend fun init(): LoadState = withContext(Dispatchers.IO) {
+    suspend fun init(variant: AudioConfig.WhisperVariant): LoadState = withContext(Dispatchers.IO) {
         try {
-            val dir     = File(context.filesDir, AudioConfig.STT_DIR)
-            val encoder = File(dir, AudioConfig.STT_ENCODER_FILE)
-            val decoder = File(dir, AudioConfig.STT_DECODER_FILE)
-            val tokens  = File(dir, AudioConfig.STT_TOKENS_FILE)
+            val dir     = File(context.filesDir, variant.subDir)
+            val encoder = File(dir, variant.files[0].filename)
+            val decoder = File(dir, variant.files[1].filename)
+            val tokens  = File(dir, variant.files[2].filename)
 
             for (f in listOf(encoder, decoder, tokens)) {
                 if (!f.exists()) {
