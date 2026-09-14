@@ -69,6 +69,8 @@ class LlmService(private val context: Context) {
         val stats: com.ttt.companion.model.PerformanceStats? = null
     )
 
+    enum class NudgeType { NO_THINK, DONE }
+
     suspend fun chat(
         history: List<ChatMessage>,
         systemPrompt: String,
@@ -76,7 +78,9 @@ class LlmService(private val context: Context) {
         userName: String = "User",
         forceCpu: Boolean = false,
         forceReasoning: Boolean = false,
-        reasoningThreshold: Int = 150
+        reasoningThreshold: Int = 150,
+        nudgeType: NudgeType = NudgeType.NO_THINK,
+        useOfficialNudge: Boolean = false
     ): ChatResult {
         // Engine Swapping Logic
         val currentIsCpu = engine is LlamaCppEngine
@@ -120,12 +124,18 @@ class LlmService(private val context: Context) {
             append("\n<|im_end|>\n")
             
             // CONVERSATION HISTORY (Cleaned of structural artifacts)
-            history.takeLast(10).forEach { msg ->
+            val historySubset = history.takeLast(10)
+            historySubset.forEachIndexed { index, msg ->
                 val role = if (msg.role == "user") "user" else "assistant"
-                val cleanedContent = msg.content
+                var cleanedContent = msg.content
                     .replace(Regex("<think>.*?</think>", RegexOption.DOT_MATCHES_ALL), "")
                     .trim()
                 
+                // If official nudge is enabled, append keyword to the LAST user message
+                if (useOfficialNudge && index == historySubset.size - 1 && msg.role == "user") {
+                    cleanedContent += if (forceReasoning) " /think" else " /no_think"
+                }
+
                 append("<|im_start|>$role\n")
                 append(cleanedContent)
                 append("\n<|im_end|>\n")
@@ -134,27 +144,33 @@ class LlmService(private val context: Context) {
             // STRUCTURAL STEERING (Hard-Locks)
             append("<|im_start|>assistant\n")
             if (forceReasoning) {
-                // Let the model decide whether to use <think> tags or not
-            } else {
-                // Pre-fill with a neutral "done" signal to satisfy reasoning models
-                append("<think>\nDone.</think>\n")
+                // Let the model decide, or force it if it's a reasoning model
+                append("<think>")
+            } else if (lastProfile?.skipThinking != true && !useOfficialNudge) {
+                // Only pre-fill "no-think" if the model actually HAS a thinking mode
+                val nudge = if (nudgeType == NudgeType.NO_THINK) "/no_think" else "Done."
+                append("<think>\n$nudge</think>\n")
             }
         }
         
         Log.d("LlmService", "Prompt (Tools: ${detectedTools.joinToString()}): $prompt")
 
         val result = StringBuilder()
-        var inThinkingBlock = false
-        if (!forceReasoning) {
-            result.append("<think>\nDone.</think>\n")
-        } else {
-            inThinkingBlock = false // Initially false, will detect when model starts <think>
+        var currentThinkingState = false
+        if (forceReasoning) {
+            result.append("<think>")
+            currentThinkingState = true
+        } else if (lastProfile?.skipThinking != true && !useOfficialNudge) {
+            val nudge = if (nudgeType == NudgeType.NO_THINK) "/no_think" else "Done."
+            result.append("<think>\n$nudge</think>\n")
+            currentThinkingState = false
         }
         
         val finishedDeferred = CompletableDeferred<ChatResult>()
 
         val chatJob = scope.launch {
             var tokenCount = 0
+            var inThinkingBlock = currentThinkingState
             var watchdogTriggered = false
 
             engine.events.collect { event ->

@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ttt.companion.audio.AudioConfig
 import com.ttt.companion.llm.DownloadState
+import com.ttt.companion.llm.ModelConfig
 
 /**
  * High-fidelity initialization screen.
@@ -32,7 +33,8 @@ import com.ttt.companion.llm.DownloadState
 @Composable
 fun SetupScreen(viewModel: MainViewModel) {
     val downloadState by viewModel.downloadState.collectAsStateWithLifecycle()
-    val selectedId by viewModel.selectedWhisperId.collectAsStateWithLifecycle()
+    val selectedWhisperId by viewModel.selectedWhisperId.collectAsStateWithLifecycle()
+    val selectedLlmId by viewModel.selectedLlmId.collectAsStateWithLifecycle()
 
     Box(
         modifier = Modifier
@@ -56,9 +58,11 @@ fun SetupScreen(viewModel: MainViewModel) {
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
+                .verticalScroll(rememberScrollState())
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            Spacer(Modifier.height(16.dp))
             Text(
                 "SYSTEM INITIALIZATION",
                 color = Color.White,
@@ -74,7 +78,7 @@ fun SetupScreen(viewModel: MainViewModel) {
                 letterSpacing = 1.sp
             )
 
-            Spacer(Modifier.height(48.dp))
+            Spacer(Modifier.height(24.dp))
 
             // Whisper Model Selector
             Text(
@@ -84,22 +88,47 @@ fun SetupScreen(viewModel: MainViewModel) {
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold
             )
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(8.dp))
             
             LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                contentPadding = PaddingValues(bottom = 16.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(bottom = 4.dp)
             ) {
                 items(AudioConfig.WHISPER_VARIANTS) { variant ->
                     ModelCard(
                         variant = variant,
-                        isSelected = variant.id == selectedId,
+                        isSelected = variant.id == selectedWhisperId,
                         onSelect = { viewModel.selectWhisperModel(variant.id) }
                     )
                 }
             }
 
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(16.dp))
+
+            // LLM Model Selector
+            Text(
+                "SELECT NEURAL CORE (LLM)",
+                modifier = Modifier.fillMaxWidth(),
+                color = Color.Gray,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.height(8.dp))
+
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(bottom = 4.dp)
+            ) {
+                items(ModelConfig.LLM_VARIANTS) { variant ->
+                    LlmModelCardSmall(
+                        variant = variant,
+                        isSelected = variant.id == selectedLlmId,
+                        onSelect = { viewModel.selectLlmModel(variant.id) }
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
 
             // Neural Registry (Phase List)
             Text(
@@ -109,10 +138,13 @@ fun SetupScreen(viewModel: MainViewModel) {
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold
             )
-            Spacer(Modifier.height(12.dp))
-            NeuralRegistryList(currentPhase = (downloadState as? DownloadState.Downloading)?.phase)
+            Spacer(Modifier.height(8.dp))
+            NeuralRegistryList(
+                currentPhase = (downloadState as? DownloadState.Downloading)?.phase,
+                selectedLlmId = selectedLlmId
+            )
 
-            Spacer(Modifier.weight(1f))
+            Spacer(Modifier.height(24.dp))
 
             // Progress Area
             Box(
@@ -125,18 +157,24 @@ fun SetupScreen(viewModel: MainViewModel) {
             ) {
                 DownloadProgressContent(state = downloadState, onStart = { viewModel.startDownload() })
             }
+            
+            Spacer(Modifier.height(24.dp))
         }
     }
 }
 
 @Composable
-private fun NeuralRegistryList(currentPhase: com.ttt.companion.llm.SetupPhase?) {
+private fun NeuralRegistryList(
+    currentPhase: com.ttt.companion.llm.SetupPhase?,
+    selectedLlmId: String
+) {
     val pulseAlpha by rememberInfiniteTransition(label = "p").animateFloat(
         1f, 0.4f, infiniteRepeatable(tween(800), RepeatMode.Reverse), label = "a"
     )
 
+    val llmVariant = ModelConfig.getLlmVariant(selectedLlmId)
     val phases = listOf(
-        com.ttt.companion.llm.SetupPhase.LLM to "Main Core (Qwen 3.5)",
+        com.ttt.companion.llm.SetupPhase.LLM to "Main Core (${llmVariant.displayName})",
         com.ttt.companion.llm.SetupPhase.STT to "Speech Processor (Whisper)",
         com.ttt.companion.llm.SetupPhase.TTS to "Vocal Synthesis (Kokoro)"
     )
@@ -167,6 +205,43 @@ private fun NeuralRegistryList(currentPhase: com.ttt.companion.llm.SetupPhase?) 
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun LlmModelCardSmall(variant: ModelConfig.ModelVariant, isSelected: Boolean, onSelect: () -> Unit) {
+    val borderColor = if (isSelected) Color(0xFF6699FF) else Color.White.copy(alpha = 0.1f)
+    val bgColor = if (isSelected) Color(0xFF6699FF).copy(alpha = 0.1f) else Color.White.copy(alpha = 0.02f)
+
+    Column(
+        modifier = Modifier
+            .width(180.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(bgColor)
+            .border(1.dp, borderColor, RoundedCornerShape(16.dp))
+            .clickable { onSelect() }
+            .padding(16.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                if (isSelected) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
+                null,
+                tint = if (isSelected) Color(0xFF6699FF) else Color.Gray,
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(variant.displayName, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+        Spacer(Modifier.height(4.dp))
+        if (!variant.isRecommended) {
+            Text("NOT RECOMMENDED", color = Color.Red, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+        } else if (variant.isReasoning) {
+            Text("EXPERIMENTAL", color = Color(0xFF6699FF), fontSize = 8.sp, fontWeight = FontWeight.Bold)
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(variant.description, color = Color.Gray, fontSize = 10.sp, minLines = 2, maxLines = 2)
+        Spacer(Modifier.height(8.dp))
+        Text(variant.sizeLabel, color = Color(0xFF6699FF), fontSize = 11.sp, fontWeight = FontWeight.Bold)
     }
 }
 

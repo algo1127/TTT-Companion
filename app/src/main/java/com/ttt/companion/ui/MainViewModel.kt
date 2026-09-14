@@ -121,6 +121,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     )
     val customContextSize = _customContextSize.asStateFlow()
 
+    private val _selectedLlmId = MutableStateFlow(
+        app.getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
+            .getString("llm_model_id", com.ttt.companion.llm.ModelConfig.DEFAULT_LLM.id) ?: com.ttt.companion.llm.ModelConfig.DEFAULT_LLM.id
+    )
+    val selectedLlmId = _selectedLlmId.asStateFlow()
+
     private val _selectedWhisperId = MutableStateFlow(
         app.getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
             .getString("whisper_model_id", AudioConfig.DEFAULT_WHISPER.id) ?: AudioConfig.DEFAULT_WHISPER.id
@@ -156,6 +162,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .getInt("reasoning_threshold", 150)
     )
     val reasoningThreshold = _reasoningThreshold.asStateFlow()
+
+    private val _useOfficialNudge = MutableStateFlow(
+        app.getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
+            .getBoolean("use_official_nudge", false)
+    )
+    val useOfficialNudge = _useOfficialNudge.asStateFlow()
+
+    private val _nudgeType = MutableStateFlow(
+        LlmService.NudgeType.valueOf(
+            app.getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
+                .getString("nudge_type", LlmService.NudgeType.NO_THINK.name) ?: LlmService.NudgeType.NO_THINK.name
+        )
+    )
+    val nudgeType = _nudgeType.asStateFlow()
 
     // --- Voice Lab (Blending) ---
     private val _useBlending = MutableStateFlow(
@@ -214,6 +234,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _vrmLoadingStatus = MutableStateFlow("Waking engine...")
     val vrmLoadingStatus = _vrmLoadingStatus.asStateFlow()
 
+    private val _memories = MutableStateFlow<List<com.ttt.companion.memory.MemoryEntry>>(emptyList())
+    val memories = _memories.asStateFlow()
+
     // --- Audio state --------------------------------------------------------
 
     sealed class AudioState {
@@ -266,7 +289,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun allModelsReady(): Boolean {
         val whisper = AudioConfig.getWhisperVariant(_selectedWhisperId.value)
-        return downloader.isModelReady() &&
+        val llmVariant = com.ttt.companion.llm.ModelConfig.getLlmVariant(_selectedLlmId.value)
+        return downloader.isModelReady(llmVariant) &&
                 audioDl.areFilesReady(whisper.subDir, whisper.files) &&
                 audioDl.areFilesReady(AudioConfig.TTS_DIR, AudioConfig.TTS_FILES)
     }
@@ -275,8 +299,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun startDownload() {
         viewModelScope.launch {
-            if (!downloader.isModelReady()) {
-                downloader.download { state -> _downloadState.value = state }
+            val llmVariant = com.ttt.companion.llm.ModelConfig.getLlmVariant(_selectedLlmId.value)
+            if (!downloader.isModelReady(llmVariant)) {
+                downloader.download(llmVariant) { state -> _downloadState.value = state }
                 if (_downloadState.value is DownloadState.Failed) return@launch
             }
             
@@ -322,11 +347,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             kotlinx.coroutines.delay(400)
             _llmLoadingStatus.value = "Loading librnllama_v8_2_dotprod_i8mm.so..."
             
+            val llmVariant = com.ttt.companion.llm.ModelConfig.getLlmVariant(_selectedLlmId.value)
+            val modelFile = downloader.getModelFile(llmVariant)
+
             // Use current character name for the profile passed to LLM
             val activeCharacter = character.copy(
                 name = _customName.value,
                 systemPrompt = buildFullPrompt(_customName.value, _customPrompt.value),
-                presencePenalty = _presencePenalty.value
+                presencePenalty = _presencePenalty.value,
+                modelPath = modelFile.absolutePath,
+                skipThinking = !llmVariant.isReasoning
             )
             
             val llmResult = llm.loadModel(activeCharacter, contextSize = _customContextSize.value)
@@ -398,7 +428,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     characterId = character.id,
                     userName = _userName.value,
                     forceReasoning = _reasoningEnabled.value,
-                    reasoningThreshold = _reasoningThreshold.value
+                    reasoningThreshold = _reasoningThreshold.value,
+                    nudgeType = _nudgeType.value,
+                    useOfficialNudge = _useOfficialNudge.value
                 )
                 val rawResponse = chatResult.text
                 val parseResult = com.ttt.companion.tools.ToolCallParser.parse(rawResponse)
@@ -682,6 +714,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .apply()
     }
 
+    fun loadMemories() {
+        viewModelScope.launch {
+            _memories.value = memoryManager.getAll(character.id)
+        }
+    }
+
+    fun addManualMemory(summary: String) {
+        viewModelScope.launch {
+            memoryManager.saveManual(character.id, summary)
+            loadMemories() // Refresh
+        }
+    }
+
     fun setShowPerformanceStats(enabled: Boolean) {
         _showPerformanceStats.value = enabled
         getApplication<Application>().getSharedPreferences("debug_prefs", Application.MODE_PRIVATE)
@@ -698,6 +743,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .apply()
     }
 
+    fun selectLlmModel(id: String) {
+        if (_selectedLlmId.value == id) return
+        
+        _selectedLlmId.value = id
+        getApplication<Application>().getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
+            .edit()
+            .putString("llm_model_id", id)
+            .apply()
+            
+        // If the new model isn't downloaded, go to setup
+        if (!allModelsReady()) {
+            _downloadState.value = DownloadState.Idle
+        } else {
+            restartLlm()
+        }
+    }
+
     fun setReasoningEnabled(enabled: Boolean) {
         _reasoningEnabled.value = enabled
         getApplication<Application>().getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
@@ -711,6 +773,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         getApplication<Application>().getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
             .edit()
             .putInt("reasoning_threshold", value)
+            .apply()
+    }
+
+    fun setUseOfficialNudge(enabled: Boolean) {
+        _useOfficialNudge.value = enabled
+        getApplication<Application>().getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
+            .edit()
+            .putBoolean("use_official_nudge", enabled)
+            .apply()
+    }
+
+    fun setNudgeType(type: LlmService.NudgeType) {
+        _nudgeType.value = type
+        getApplication<Application>().getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
+            .edit()
+            .putString("nudge_type", type.name)
             .apply()
     }
 

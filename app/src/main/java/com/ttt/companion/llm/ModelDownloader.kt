@@ -9,32 +9,35 @@ import java.net.URL
 
 class ModelDownloader(private val context: Context) {
 
-    private val modelDir: File
-        get() = File(context.filesDir, ModelConfig.MODEL_DIR).also { it.mkdirs() }
-
-    val modelFile: File
-        get() = File(modelDir, ModelConfig.MODEL_FILENAME)
+    fun getModelFile(variant: ModelConfig.ModelVariant): File {
+        val dir = File(context.filesDir, variant.subDir).also { it.mkdirs() }
+        return File(dir, variant.filename)
+    }
 
     /** True if the model file is already on disk and non-empty */
-    fun isModelReady(): Boolean = modelFile.exists() && modelFile.length() > 0L
+    fun isModelReady(variant: ModelConfig.ModelVariant): Boolean {
+        val file = getModelFile(variant)
+        return file.exists() && file.length() > 0L
+    }
 
     /**
      * Download the model file with progress reporting.
      * Resumes partial downloads if the file already exists (uses Range header).
      * [onProgress] is called on the main thread — safe to update UI directly.
      */
-    suspend fun download(onProgress: (DownloadState) -> Unit) {
-        if (isModelReady()) {
+    suspend fun download(variant: ModelConfig.ModelVariant, onProgress: (DownloadState) -> Unit) {
+        if (isModelReady(variant)) {
             onProgress(DownloadState.AlreadyHave)
             return
         }
 
         withContext(Dispatchers.IO) {
-            val tempFile = File(modelDir, "${ModelConfig.MODEL_FILENAME}.part")
+            val modelFile = getModelFile(variant)
+            val tempFile = File(modelFile.parentFile, "${variant.filename}.part")
             val existingBytes = if (tempFile.exists()) tempFile.length() else 0L
 
             try {
-                val url = URL(ModelConfig.DOWNLOAD_URL)
+                val url = URL(variant.url)
                 val conn = (url.openConnection() as HttpURLConnection).apply {
                     connectTimeout = 15_000
                     readTimeout    = 30_000
@@ -62,7 +65,7 @@ class ModelDownloader(private val context: Context) {
                                 withContext(Dispatchers.Main) {
                                     onProgress(DownloadState.Downloading(
                                         phase       = SetupPhase.LLM,
-                                        label       = ModelConfig.MODEL_FILENAME,
+                                        label       = variant.filename,
                                         progressPct = pct,
                                         mbReceived  = bytesWritten / 1_048_576f,
                                         mbTotal     = totalBytes   / 1_048_576f
@@ -75,7 +78,7 @@ class ModelDownloader(private val context: Context) {
                         withContext(Dispatchers.Main) {
                             onProgress(DownloadState.Downloading(
                                 phase       = SetupPhase.LLM,
-                                label       = ModelConfig.MODEL_FILENAME,
+                                label       = variant.filename,
                                 progressPct = finalPct,
                                 mbReceived  = bytesWritten / 1_048_576f,
                                 mbTotal     = totalBytes   / 1_048_576f

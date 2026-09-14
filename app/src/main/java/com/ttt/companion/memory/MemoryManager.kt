@@ -55,10 +55,11 @@ class MemoryManager(context: Context) {
                 systemPrompt = summarizerPrompt,
                 characterId = characterId,
                 userName = "User",
-                forceCpu = true
+                forceCpu = false // Use current engine (GPU) for speed and memory stability
             )
 
             if (result.text.isNotBlank()) {
+                android.util.Log.i("MemoryManager", "Saving new memory: ${result.text}")
                 dao.insert(
                     MemoryEntry(
                         characterId = characterId,
@@ -71,5 +72,19 @@ class MemoryManager(context: Context) {
             // Non-critical — losing one session's memory isn't fatal
             android.util.Log.e("MemoryManager", "Failed to summarize session", e)
         }
+    }
+
+    suspend fun getAll(characterId: String): List<MemoryEntry> = withContext(Dispatchers.IO) {
+        dao.getAll(characterId)
+    }
+
+    suspend fun saveManual(characterId: String, summary: String) = withContext(Dispatchers.IO) {
+        dao.insert(
+            MemoryEntry(
+                characterId = characterId,
+                timestamp = System.currentTimeMillis(),
+                summary = summary
+            )
+        )
     }
 }
