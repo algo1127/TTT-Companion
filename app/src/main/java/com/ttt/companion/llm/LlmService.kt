@@ -1,7 +1,6 @@
 package com.ttt.companion.llm
 
 import android.content.Context
-import android.os.PowerManager
 import android.util.Log
 import com.ttt.companion.model.CharacterProfile
 import com.ttt.companion.model.ChatMessage
@@ -59,6 +58,12 @@ class LlmService(private val context: Context) {
         lastProfile = null
     }
 
+    fun stop() {
+        scope.launch {
+            engine.stop()
+        }
+    }
+
     data class ChatResult(
         val text: String,
         val stats: com.ttt.companion.model.PerformanceStats? = null
@@ -69,7 +74,9 @@ class LlmService(private val context: Context) {
         systemPrompt: String,
         characterId: String,
         userName: String = "User",
-        forceCpu: Boolean = false
+        forceCpu: Boolean = false,
+        forceReasoning: Boolean = false,
+        reasoningThreshold: Int = 150
     ): ChatResult {
         // Engine Swapping Logic
         val currentIsCpu = engine is LlamaCppEngine
@@ -96,7 +103,7 @@ class LlmService(private val context: Context) {
         val prompt = buildString {
             append("<|im_start|>system\n")
             append(systemPrompt.trim())
-            append("\n\n<user_info>\nYou are talking to $userName.\n</user_info>")
+            append("\n\n<user_info>\nYou are talking to $userName. Address them by this name. Never call them 'human', 'user', or 'mortal'.\n</user_info>")
             
             // XML Tagging for strict context isolation
             if (relevantMemory.isNotEmpty()) {
@@ -112,30 +119,69 @@ class LlmService(private val context: Context) {
             
             append("\n<|im_end|>\n")
             
-            // CONVERSATION HISTORY
+            // CONVERSATION HISTORY (Cleaned of structural artifacts)
             history.takeLast(10).forEach { msg ->
                 val role = if (msg.role == "user") "user" else "assistant"
+                val cleanedContent = msg.content
+                    .replace(Regex("<think>.*?</think>", RegexOption.DOT_MATCHES_ALL), "")
+                    .trim()
+                
                 append("<|im_start|>$role\n")
-                append(msg.content.trim())
+                append(cleanedContent)
                 append("\n<|im_end|>\n")
             }
+            
+            // STRUCTURAL STEERING (Hard-Locks)
             append("<|im_start|>assistant\n")
+            if (forceReasoning) {
+                // Let the model decide whether to use <think> tags or not
+            } else {
+                // Pre-fill with a neutral "done" signal to satisfy reasoning models
+                append("<think>\nDone.</think>\n")
+            }
         }
         
         Log.d("LlmService", "Prompt (Tools: ${detectedTools.joinToString()}): $prompt")
 
         val result = StringBuilder()
+        var inThinkingBlock = false
+        if (!forceReasoning) {
+            result.append("<think>\nDone.</think>\n")
+        } else {
+            inThinkingBlock = false // Initially false, will detect when model starts <think>
+        }
+        
         val finishedDeferred = CompletableDeferred<ChatResult>()
 
         val chatJob = scope.launch {
+            var tokenCount = 0
+            var watchdogTriggered = false
+
             engine.events.collect { event ->
                 when (event) {
                     is LlmEngine.Event.Ongoing -> {
+                        tokenCount++
                         result.append(event.word)
+                        
+                        if (event.word.contains("<think>")) {
+                            inThinkingBlock = true
+                        }
+
+                        // Reasoning Watchdog (The "Bouncer")
+                        if (inThinkingBlock && !watchdogTriggered && tokenCount > reasoningThreshold) {
+                            Log.w("LlmService", "Reasoning threshold reached ($reasoningThreshold). Forcing Cool Down...")
+                            watchdogTriggered = true
+                            engine.stop()
+                        }
+                        
+                        if (event.word.contains("</think>")) {
+                            inThinkingBlock = false
+                        }
                     }
                     is LlmEngine.Event.Done -> {
-                        val finalResult = result.toString()
+                        if (watchdogTriggered) return@collect
                         
+                        val finalResult = result.toString()
                         val stats = event.metrics?.let {
                             com.ttt.companion.model.PerformanceStats(
                                 ttft = it.ttft,
@@ -147,10 +193,9 @@ class LlmService(private val context: Context) {
                             )
                         }
 
-                        // Strictly remove performance stats and thinking tags from the text content
                         val cleaned = finalResult
                             .replace(Regex("<think>.*?</think>", RegexOption.DOT_MATCHES_ALL), "")
-                            .replace(Regex("\\(\\d+ms\\)$"), "") // Remove the trailing (XXXXms)
+                            .replace(Regex("\\(\\d+ms\\)$"), "")
                             .trim()
                         
                         if (cleaned.isEmpty() && finalResult.contains("</think>")) {
@@ -159,7 +204,11 @@ class LlmService(private val context: Context) {
                             finishedDeferred.complete(ChatResult(cleaned, stats))
                         }
                     }
-                    is LlmEngine.Event.Error -> finishedDeferred.completeExceptionally(Exception(event.message))
+                    is LlmEngine.Event.Error -> {
+                        if (!watchdogTriggered) {
+                            finishedDeferred.completeExceptionally(Exception(event.message))
+                        }
+                    }
                     else -> {}
                 }
             }
@@ -169,13 +218,47 @@ class LlmService(private val context: Context) {
             val activity = context as? android.app.Activity
             activity?.window?.setSustainedPerformanceMode(true)
             
-            engine.predict(prompt)
-            val response = finishedDeferred.await()
+            engine.predict(
+                prompt = prompt,
+                stopWords = if (!forceReasoning) listOf("<think>") else emptyList()
+            )
             
+            val initialResult = finishedDeferred.await()
             activity?.window?.setSustainedPerformanceMode(false)
-            response
+            initialResult
+        } catch (e: Exception) {
+            if (result.contains("<think>") && !result.contains("</think>")) {
+                 resumeAfterWatchdog(result)
+            } else {
+                 throw e
+            }
         } finally {
             chatJob.cancel()
         }
+    }
+
+    private suspend fun resumeAfterWatchdog(
+        partialResult: StringBuilder, 
+    ): ChatResult {
+        Log.i("LlmService", "Resuming after watchdog interruption...")
+        val resumedPrompt = partialResult.toString() + "\n... wrap up. </think>\n"
+        val result = StringBuilder()
+        val finishedDeferred = CompletableDeferred<ChatResult>()
+        
+        val chatJob = scope.launch {
+            engine.events.collect { event ->
+                if (event is LlmEngine.Event.Ongoing) result.append(event.word)
+                if (event is LlmEngine.Event.Done) {
+                    val final = partialResult.toString() + "\n... wrap up. </think>\n" + result.toString()
+                    val cleaned = final.replace(Regex("<think>.*?</think>", RegexOption.DOT_MATCHES_ALL), "").trim()
+                    finishedDeferred.complete(ChatResult(cleaned))
+                }
+            }
+        }
+        
+        engine.predict(resumedPrompt, tempOverride = 0.1f)
+        val finalResult = finishedDeferred.await()
+        chatJob.cancel()
+        return finalResult
     }
 }

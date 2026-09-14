@@ -145,6 +145,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     )
     val presencePenalty = _presencePenalty.asStateFlow()
 
+    private val _reasoningEnabled = MutableStateFlow(
+        app.getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
+            .getBoolean("reasoning_enabled", false)
+    )
+    val reasoningEnabled = _reasoningEnabled.asStateFlow()
+
+    private val _reasoningThreshold = MutableStateFlow(
+        app.getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
+            .getInt("reasoning_threshold", 150)
+    )
+    val reasoningThreshold = _reasoningThreshold.asStateFlow()
+
     // --- Voice Lab (Blending) ---
     private val _useBlending = MutableStateFlow(
         app.getSharedPreferences("character_prefs", Application.MODE_PRIVATE)
@@ -187,6 +199,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading = _isLoading.asStateFlow()
+
+    private var chatJob: kotlinx.coroutines.Job? = null
 
     private val _modelState = MutableStateFlow<LlmService.LoadState>(LlmService.LoadState.Idle)
     val modelState = _modelState.asStateFlow()
@@ -375,13 +389,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _messages.value = updatedHistory
         _isLoading.value = true
 
-        viewModelScope.launch {
+        chatJob?.cancel()
+        chatJob = viewModelScope.launch {
             try {
                 val chatResult = llm.chat(
                     history = updatedHistory, 
                     systemPrompt = fullSystemPrompt, 
                     characterId = character.id,
-                    userName = _userName.value
+                    userName = _userName.value,
+                    forceReasoning = _reasoningEnabled.value,
+                    reasoningThreshold = _reasoningThreshold.value
                 )
                 val rawResponse = chatResult.text
                 val parseResult = com.ttt.companion.tools.ToolCallParser.parse(rawResponse)
@@ -471,9 +488,24 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun stopRecording() { voiceRecorder.stopFlag = true }
 
+    fun stopAll() {
+        Log.i(TAG, "Full stop requested (LLM + TTS + MIC)")
+        chatJob?.cancel()
+        chatJob = null
+        
+        llm.stop()
+        ttsService.stop()
+        stopRecording()
+        stopLipSync()
+        
+        _isLoading.value = false
+        _isSpeaking.value = false
+        _audioState.value = AudioState.Idle
+    }
+
     fun toggleMic() {
-        if (_isSpeaking.value || _audioState.value == AudioState.Recording) {
-            stopLipSync(); stopRecording()
+        if (_isLoading.value || _isSpeaking.value || _audioState.value == AudioState.Recording) {
+            stopAll()
         } else {
             startRecording()
         }
@@ -663,6 +695,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         getApplication<Application>().getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
             .edit()
             .putFloat("presence_penalty", value)
+            .apply()
+    }
+
+    fun setReasoningEnabled(enabled: Boolean) {
+        _reasoningEnabled.value = enabled
+        getApplication<Application>().getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
+            .edit()
+            .putBoolean("reasoning_enabled", enabled)
+            .apply()
+    }
+
+    fun setReasoningThreshold(value: Int) {
+        _reasoningThreshold.value = value
+        getApplication<Application>().getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
+            .edit()
+            .putInt("reasoning_threshold", value)
             .apply()
     }
 

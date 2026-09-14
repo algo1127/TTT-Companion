@@ -87,12 +87,22 @@ class LlamaCppEngine(contentResolver: ContentResolver) : LlmEngine {
         }
     }
 
-    override suspend fun predict(prompt: String) {
+    override suspend fun predict(
+        prompt: String,
+        tempOverride: Float?,
+        stopWords: List<String>
+    ) {
+        // llama.cpp simple wrapper might not support mid-stream stop/temp change easily
+        // but we'll pass the logic through if the underlying library supports it.
         helper.predict(prompt = prompt)
     }
 
     override fun unload() {
         helper.release()
         loadedModelPath = null
+    }
+
+    override suspend fun stop() {
+        helper.stopPrediction()
     }
 }

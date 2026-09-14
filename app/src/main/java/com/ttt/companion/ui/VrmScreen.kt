@@ -365,26 +365,28 @@ fun VrmScreenContent(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    val ready = modelState == LlmService.LoadState.Ready && !isLoading
+                    val isBusy = isLoading || isSpeaking || audioState != MainViewModel.AudioState.Idle
+                    val ready = modelState == LlmService.LoadState.Ready
+                    
                     OutlinedTextField(
                         value = inputText, onValueChange = { inputText = it; if (!expanded) expanded = true },
                         modifier = Modifier.weight(1f), placeholder = { Text("Say something...", color = Color(0xFF666666)) },
-                        enabled = ready, singleLine = true,
+                        enabled = ready && !isBusy, singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFF6699FF), unfocusedBorderColor = Color(0xFF333344), focusedTextColor = Color.White, unfocusedTextColor = Color.White, cursorColor = Color(0xFF6699FF))
                     )
                     IconButton(onClick = {
-                        if (isSpeaking) onToggleMic()
+                        if (isBusy) onToggleMic()
                         else if (inputText.isNotBlank()) { onSendMessage(inputText); inputText = "" }
                         else onToggleMic()
                     }, enabled = ready) {
                         val icon = when {
-                            isSpeaking -> Icons.Default.Stop
+                            isBusy -> Icons.Default.Stop
                             inputText.isNotBlank() -> Icons.AutoMirrored.Filled.Send
                             else -> Icons.Default.Mic
                         }
-                        Icon(imageVector = icon, contentDescription = null, tint = if (ready) (if (isSpeaking) Color(0xFFFF6666) else if (inputText.isNotBlank()) Color(0xFF6699FF) else Color.White) else Color(0xFF333333))
+                        Icon(imageVector = icon, contentDescription = null, tint = if (ready) (if (isBusy) Color(0xFFFF6666) else if (inputText.isNotBlank()) Color(0xFF6699FF) else Color.White) else Color(0xFF333333))
                     }
-                    IconButton(onClick = onToggleCameraLock, enabled = ready) {
+                    IconButton(onClick = onToggleCameraLock, enabled = ready && !isBusy) {
                         Icon(imageVector = if (isCameraLocked) Icons.Default.Lock else Icons.Default.LockOpen, contentDescription = null, tint = if (isCameraLocked) Color(0xFF6699FF) else Color(0xFFFF4444))
                     }
                 }

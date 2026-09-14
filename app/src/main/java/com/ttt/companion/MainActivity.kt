@@ -23,7 +23,6 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import com.ttt.companion.llm.DownloadState
 import com.ttt.companion.ui.MainViewModel
-import com.ttt.companion.ui.DownloadScreen
 import com.ttt.companion.ui.SetupScreen
 import com.ttt.companion.ui.VrmScreen
 import com.ttt.companion.ui.CharacterScreen
@@ -143,7 +142,7 @@ class MainActivity : FragmentActivity(), GodotHost {
                         }
                     }
                 } else {
-                    DownloadScreen(viewModel, onFinish = { /* Handled by state change */ })
+                    SetupScreen(viewModel)
                 }
             }
         }

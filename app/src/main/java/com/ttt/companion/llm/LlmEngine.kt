@@ -24,6 +24,11 @@ interface LlmEngine {
     val computeUnit: String
 
     suspend fun loadModel(profile: CharacterProfile, contextSize: Int): LlmService.LoadState
-    suspend fun predict(prompt: String)
+    suspend fun predict(
+        prompt: String,
+        tempOverride: Float? = null,
+        stopWords: List<String> = emptyList()
+    )
     fun unload()
+    suspend fun stop()
 }

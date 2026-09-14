@@ -23,6 +23,8 @@ class TtsService(private val context: Context) {
     private val TAG = "TtsService"
 
     private var tts: OfflineTts? = null
+    private var currentTrack: AudioTrack? = null
+    private var stopFlag = false
 
     sealed class LoadState {
         data object Idle    : LoadState()
@@ -187,8 +189,15 @@ class TtsService(private val context: Context) {
         }
 
         try {
+            stopFlag = false
             Log.d(TAG, "Generating TTS for: \"$text\" (voice=$voiceId, speed=$speed, pitch=$pitch)")
             val audio = engine.generate(text = text, sid = voiceId, speed = speed)
+            
+            if (stopFlag) {
+                Log.d(TAG, "TTS generation cancelled by user")
+                return@withContext
+            }
+
             Log.d(TAG, "TTS done ÔÇö ${audio.samples.size} samples @ ${audio.sampleRate} Hz")
             playPcm(audio.samples, audio.sampleRate, pitch = pitch)
         } catch (e: Exception) {
@@ -225,12 +234,21 @@ class TtsService(private val context: Context) {
             }
         }
 
+        currentTrack = track
         track.play()
-        track.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
         
-        // Wait for the track to finish playing
+        // Write in chunks to allow for quicker interruption
+        val chunkSize = 4096
+        var written = 0
+        while (written < samples.size && !stopFlag) {
+            val toWrite = minOf(chunkSize, samples.size - written)
+            track.write(samples, written, toWrite, AudioTrack.WRITE_BLOCKING)
+            written += toWrite
+        }
+        
+        // Wait for the track to finish playing remaining buffer
         val frames = samples.size
-        while (track.playbackHeadPosition < frames) {
+        while (track.playbackHeadPosition < frames && !stopFlag) {
             try {
                 Thread.sleep(10)
             } catch (_: Exception) { break }
@@ -239,7 +257,24 @@ class TtsService(private val context: Context) {
 
         track.stop()
         track.release()
-        Log.d(TAG, "TTS playback complete")
+        currentTrack = null
+        Log.d(TAG, "TTS playback ${if (stopFlag) "interrupted" else "complete"}")
+    }
+
+    fun stop() {
+        Log.i(TAG, "Stop requested for TTS")
+        stopFlag = true
+        try {
+            currentTrack?.let {
+                it.pause()
+                it.flush()
+                it.stop()
+                it.release()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error stopping AudioTrack: ${e.message}")
+        }
+        currentTrack = null
     }
 
     fun release() {

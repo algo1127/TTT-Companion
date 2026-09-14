@@ -1,138 +1,260 @@
 package com.ttt.companion.ui
 
+import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ttt.companion.audio.AudioConfig
 import com.ttt.companion.llm.DownloadState
-import com.ttt.companion.llm.SetupPhase
 
+/**
+ * High-fidelity initialization screen.
+ * Replaces the original basic setup with Cyberpunk aesthetics and model selection.
+ */
 @Composable
 fun SetupScreen(viewModel: MainViewModel) {
     val downloadState by viewModel.downloadState.collectAsStateWithLifecycle()
+    val selectedId by viewModel.selectedWhisperId.collectAsStateWithLifecycle()
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(32.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
+            .background(Color(0xFF0F0F1B))
     ) {
-        Text("TTT Companion", style = MaterialTheme.typography.headlineMedium)
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = "First launch — three AI models need to be downloaded once.",
-            style = MaterialTheme.typography.bodyMedium,
-            textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+        // Neon background glow
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .height(300.dp)
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(Color(0xFF6699FF).copy(alpha = 0.15f), Color.Transparent)
+                    )
+                )
         )
 
-        Spacer(Modifier.height(8.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                "SYSTEM INITIALIZATION",
+                color = Color.White,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 4.sp
+            )
+            Text(
+                "ARIA REQUIRES NEURAL WEIGHTS TO OPERATE",
+                color = Color(0xFF6699FF),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp
+            )
 
-        // Phase size summary
-        PhaseList(current = (downloadState as? DownloadState.Downloading)?.phase)
+            Spacer(Modifier.height(48.dp))
 
-        Spacer(Modifier.height(32.dp))
-
-        when (val state = downloadState) {
-            is DownloadState.Idle -> {
-                Button(onClick = { viewModel.startDownload() }) {
-                    Text("Download All Models")
+            // Whisper Model Selector
+            Text(
+                "SELECT SPEECH ENGINE",
+                modifier = Modifier.fillMaxWidth(),
+                color = Color.Gray,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.height(12.dp))
+            
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                contentPadding = PaddingValues(bottom = 16.dp)
+            ) {
+                items(AudioConfig.WHISPER_VARIANTS) { variant ->
+                    ModelCard(
+                        variant = variant,
+                        isSelected = variant.id == selectedId,
+                        onSelect = { viewModel.selectWhisperModel(variant.id) }
+                    )
                 }
             }
 
-            is DownloadState.Downloading -> {
-                Text(
-                    text = state.label,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    text = "${state.progressPct}%  •  ${state.mbReceived.toInt()} / " +
-                            "${if (state.mbTotal > 0) state.mbTotal.toInt().toString() + " MB" else "? MB"}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(Modifier.height(10.dp))
-                LinearProgressIndicator(
-                    progress = { state.progressPct / 100f },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = "Keep the app open. Downloads resume if interrupted.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline,
-                    textAlign = TextAlign.Center
-                )
-            }
+            Spacer(Modifier.height(32.dp))
 
-            is DownloadState.Failed -> {
-                Text(
-                    text = "Download failed:\n${state.reason}",
-                    color = MaterialTheme.colorScheme.error,
-                    textAlign = TextAlign.Center
-                )
-                Spacer(Modifier.height(16.dp))
-                Button(onClick = { viewModel.startDownload() }) {
-                    Text("Retry")
-                }
-            }
+            // Neural Registry (Phase List)
+            Text(
+                "NEURAL REGISTRY",
+                modifier = Modifier.fillMaxWidth(),
+                color = Color.Gray,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.height(12.dp))
+            NeuralRegistryList(currentPhase = (downloadState as? DownloadState.Downloading)?.phase)
 
-            else -> {} // Done / AlreadyHave handled by MainActivity
+            Spacer(Modifier.weight(1f))
+
+            // Progress Area
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(Color.White.copy(alpha = 0.05f))
+                    .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(24.dp))
+                    .padding(24.dp)
+            ) {
+                DownloadProgressContent(state = downloadState, onStart = { viewModel.startDownload() })
+            }
         }
     }
 }
 
 @Composable
-private fun PhaseList(current: SetupPhase?) {
-    val phases = listOf(
-        Triple(SetupPhase.LLM, "LLM (Qwen 3.5-4B)",            "~2.5 GB"),
-        Triple(SetupPhase.STT, "Speech recognition (Whisper)", "~87 MB"),
-        Triple(SetupPhase.TTS, "Voice synthesis (XTTS-v2)",    "~1.6 GB")
+private fun NeuralRegistryList(currentPhase: com.ttt.companion.llm.SetupPhase?) {
+    val pulseAlpha by rememberInfiniteTransition(label = "p").animateFloat(
+        1f, 0.4f, infiniteRepeatable(tween(800), RepeatMode.Reverse), label = "a"
     )
+
+    val phases = listOf(
+        com.ttt.companion.llm.SetupPhase.LLM to "Main Core (Qwen 3.5)",
+        com.ttt.companion.llm.SetupPhase.STT to "Speech Processor (Whisper)",
+        com.ttt.companion.llm.SetupPhase.TTS to "Vocal Synthesis (Kokoro)"
+    )
+
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        phases.forEach { (phase, label, size) ->
-            val isCurrent = phase == current
-            val pulse by rememberInfiniteTransition(label = "pulse").animateFloat(
-                initialValue = 1f, targetValue = 0.4f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(700),
-                    repeatMode = RepeatMode.Reverse
-                ),
-                label = "pulsealpha"
-            )
+        phases.forEach { (phase, label) ->
+            val isActive = phase == currentPhase
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .alpha(if (isCurrent) pulse else 1f),
+                    .alpha(if (isActive) pulseAlpha else if (currentPhase == null) 1f else 0.4f),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (isCurrent) "▶ $label" else "  $label",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (isCurrent) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurfaceVariant
+                    text = if (isActive) ">> $label" else "   $label",
+                    color = if (isActive) Color(0xFF6699FF) else Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
                 )
+                if (isActive) {
+                    Text("SYNCHRONIZING...", color = Color(0xFF6699FF), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                } else if (currentPhase != null && phase.ordinal < currentPhase.ordinal) {
+                    Icon(Icons.Default.Check, null, tint = Color.Green, modifier = Modifier.size(14.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModelCard(variant: AudioConfig.WhisperVariant, isSelected: Boolean, onSelect: () -> Unit) {
+    val borderColor = if (isSelected) Color(0xFF6699FF) else Color.White.copy(alpha = 0.1f)
+    val bgColor = if (isSelected) Color(0xFF6699FF).copy(alpha = 0.1f) else Color.White.copy(alpha = 0.02f)
+
+    Column(
+        modifier = Modifier
+            .width(180.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(bgColor)
+            .border(1.dp, borderColor, RoundedCornerShape(16.dp))
+            .clickable { onSelect() }
+            .padding(16.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                if (isSelected) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
+                null,
+                tint = if (isSelected) Color(0xFF6699FF) else Color.Gray,
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(variant.displayName, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(variant.description, color = Color.Gray, fontSize = 10.sp, minLines = 3, maxLines = 3)
+        Spacer(Modifier.height(12.dp))
+        Text(variant.sizeLabel, color = Color(0xFF6699FF), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun DownloadProgressContent(state: DownloadState, onStart: () -> Unit) {
+    when (state) {
+        is DownloadState.Idle -> {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("READY TO DEPLOY", color = Color.White, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(16.dp))
+                Button(
+                    onClick = onStart,
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6699FF)),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Text("START DOWNLOAD", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+        is DownloadState.Downloading -> {
+            val pulseAlpha by rememberInfiniteTransition(label = "p").animateFloat(
+                1f, 0.4f, infiniteRepeatable(tween(1000), RepeatMode.Reverse), label = "a"
+            )
+            Column {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(state.label.uppercase(), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.alpha(pulseAlpha))
+                    Text("${state.progressPct}%", color = Color(0xFF6699FF), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.height(12.dp))
+                LinearProgressIndicator(
+                    progress = { state.progressPct / 100f },
+                    modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
+                    color = Color(0xFF6699FF),
+                    trackColor = Color.White.copy(alpha = 0.1f)
+                )
+                Spacer(Modifier.height(12.dp))
                 Text(
-                    text = size,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline
+                    "${"%.1f".format(state.mbReceived)} MB / ${if (state.mbTotal > 0) "%.1f".format(state.mbTotal) else "?"} MB",
+                    color = Color.Gray, fontSize = 10.sp
                 )
             }
+        }
+        is DownloadState.Failed -> {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Default.ErrorOutline, null, tint = Color.Red, modifier = Modifier.size(32.dp))
+                Spacer(Modifier.height(12.dp))
+                Text("DOWNLOAD INTERRUPTED", color = Color.White, fontWeight = FontWeight.Bold)
+                Text(state.reason, color = Color.Gray, fontSize = 10.sp, textAlign = TextAlign.Center)
+                Spacer(Modifier.height(16.dp))
+                Button(onClick = onStart, colors = ButtonDefaults.buttonColors(containerColor = Color.Red.copy(alpha = 0.2f), contentColor = Color.Red)) {
+                    Text("RETRY")
+                }
+            }
+        }
+        else -> {
+            CircularProgressIndicator(color = Color(0xFF6699FF))
         }
     }
 }

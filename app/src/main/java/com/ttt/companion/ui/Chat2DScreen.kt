@@ -278,13 +278,15 @@ fun Chat2DScreenContent(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            val ready = modelState == LlmService.LoadState.Ready && !isLoading
+                            val isBusy = isLoading || isSpeaking || audioState != MainViewModel.AudioState.Idle
+                            val ready = modelState == LlmService.LoadState.Ready
+                            
                             OutlinedTextField(
                                 value = inputText,
                                 onValueChange = { inputText = it },
                                 modifier = Modifier.weight(1f),
                                 placeholder = { Text("Type a message...", color = Color.Gray) },
-                                enabled = ready,
+                                enabled = ready && !isBusy,
                                 singleLine = true,
                                 shape = RoundedCornerShape(24.dp),
                                 colors = OutlinedTextFieldDefaults.colors(
@@ -298,7 +300,7 @@ fun Chat2DScreenContent(
                             
                             IconButton(
                                 onClick = {
-                                    if (isSpeaking) onToggleMic()
+                                    if (isBusy) onToggleMic()
                                     else if (inputText.isNotBlank()) { onSendMessage(inputText); inputText = "" }
                                     else onToggleMic()
                                 },
@@ -306,18 +308,18 @@ fun Chat2DScreenContent(
                                 modifier = Modifier
                                     .size(48.dp)
                                     .background(
-                                        if (isSpeaking) Color(0xFFFF6666).copy(alpha = 0.2f)
+                                        if (isBusy) Color(0xFFFF6666).copy(alpha = 0.2f)
                                         else Color(0xFF6699FF).copy(alpha = 0.1f),
                                         RoundedCornerShape(24.dp)
                                     )
                             ) {
                                 val icon = when {
-                                    isSpeaking -> Icons.Default.Stop
+                                    isBusy -> Icons.Default.Stop
                                     inputText.isNotBlank() -> Icons.AutoMirrored.Filled.Send
                                     else -> Icons.Default.Mic
                                 }
                                 val tint = when {
-                                    isSpeaking -> Color(0xFFFF6666)
+                                    isBusy -> Color(0xFFFF6666)
                                     inputText.isNotBlank() -> Color(0xFF6699FF)
                                     else -> Color.White
                                 }

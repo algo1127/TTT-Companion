@@ -30,6 +30,8 @@ fun SettingsScreen(viewModel: MainViewModel) {
     val showStats by viewModel.showPerformanceStats.collectAsStateWithLifecycle()
     val presencePenalty by viewModel.presencePenalty.collectAsStateWithLifecycle()
     val keepOldModels by viewModel.keepOldModels.collectAsStateWithLifecycle()
+    val reasoningThreshold by viewModel.reasoningThreshold.collectAsStateWithLifecycle()
+    val reasoningEnabled by viewModel.reasoningEnabled.collectAsStateWithLifecycle()
 
     SettingsScreenContent(
         contextSize = contextSize,
@@ -37,6 +39,8 @@ fun SettingsScreen(viewModel: MainViewModel) {
         showStats = showStats,
         presencePenalty = presencePenalty,
         keepOldModels = keepOldModels,
+        reasoningThreshold = reasoningThreshold,
+        reasoningEnabled = reasoningEnabled,
         onBackClick = { viewModel.setScreen(MainViewModel.Screen.VRM) },
         onRestartLlmClick = { viewModel.restartLlm() },
         onRestartVrmClick = { viewModel.restartVrmEngine() },
@@ -45,7 +49,9 @@ fun SettingsScreen(viewModel: MainViewModel) {
         onToggleShowStats = { viewModel.setShowPerformanceStats(it) },
         onPresencePenaltyChange = { viewModel.setPresencePenalty(it) },
         onToggleKeepModels = { viewModel.setKeepOldModels(it) },
-        onSwitchModelsClick = { viewModel.enterDownloadMode() }
+        onSwitchModelsClick = { viewModel.enterDownloadMode() },
+        onThresholdChange = { viewModel.setReasoningThreshold(it.toInt()) },
+        onToggleReasoning = { viewModel.setReasoningEnabled(it) }
     )
 }
 
@@ -57,6 +63,8 @@ fun SettingsScreenContent(
     showStats: Boolean,
     presencePenalty: Float,
     keepOldModels: Boolean,
+    reasoningThreshold: Int,
+    reasoningEnabled: Boolean,
     onBackClick: () -> Unit,
     onRestartLlmClick: () -> Unit,
     onRestartVrmClick: () -> Unit,
@@ -65,7 +73,9 @@ fun SettingsScreenContent(
     onToggleShowStats: (Boolean) -> Unit,
     onPresencePenaltyChange: (Float) -> Unit,
     onToggleKeepModels: (Boolean) -> Unit,
-    onSwitchModelsClick: () -> Unit
+    onSwitchModelsClick: () -> Unit,
+    onThresholdChange: (Float) -> Unit,
+    onToggleReasoning: (Boolean) -> Unit
 ) {
     var localContextSize by remember(contextSize) { mutableIntStateOf(contextSize) }
 
@@ -160,6 +170,31 @@ fun SettingsScreenContent(
                         fontSize = 11.sp,
                         fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
                     )
+
+                    Spacer(Modifier.height(16.dp))
+
+                    // Reasoning Threshold Watchdog
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Cool Down Threshold", color = Color.White, fontSize = 14.sp)
+                        Text("$reasoningThreshold tokens", color = Color(0xFF6699FF), fontWeight = FontWeight.Bold)
+                    }
+                    Slider(
+                        value = reasoningThreshold.toFloat(),
+                        onValueChange = { onThresholdChange(it) },
+                        valueRange = 50f..500f,
+                        steps = 9,
+                        colors = SliderDefaults.colors(thumbColor = Color(0xFF6699FF))
+                    )
+                    Text(
+                        "Force Aria to wrap up if reasoning exceeds this limit.",
+                        color = Color.Gray,
+                        fontSize = 11.sp,
+                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                    )
                 }
             }
 
@@ -205,6 +240,13 @@ fun SettingsScreenContent(
             }
 
             SettingsSection(title = "Experimental") {
+                ToggleOption(
+                    title = "Deep Reasoning",
+                    subtitle = "Allow the model to use internal monologue (increases response time).",
+                    checked = reasoningEnabled,
+                    onCheckedChange = onToggleReasoning
+                )
+
                 ToggleOption(
                     title = "Show Performance Stats",
                     subtitle = "Display inference time and speed below messages.",

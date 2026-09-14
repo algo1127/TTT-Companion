@@ -81,12 +81,16 @@ class GenieXEngine(private val context: Context) : LlmEngine {
         }
     }
 
-    override suspend fun predict(prompt: String) {
+    override suspend fun predict(
+        prompt: String,
+        tempOverride: Float?,
+        stopWords: List<String>
+    ) {
         val wrapper = llmWrapper ?: throw Exception("GenieX not initialized")
         val profile = currentProfile ?: throw Exception("Profile not set")
 
         val samplerConfig = SamplerConfig(
-            temperature = profile.temperature,
+            temperature = tempOverride ?: profile.temperature,
             repetitionPenalty = 1.1f, // Standard penalty
             presencePenalty = profile.presencePenalty,
             topP = 0.95f
@@ -94,7 +98,9 @@ class GenieXEngine(private val context: Context) : LlmEngine {
         
         val genConfig = GenerationConfig(
             maxTokens = profile.maxTokens,
-            samplerConfig = samplerConfig
+            samplerConfig = samplerConfig,
+            stopWords = if (stopWords.isNotEmpty()) stopWords.toTypedArray() else null,
+            stopCount = stopWords.size
         )
 
         scope.launch {
@@ -103,7 +109,7 @@ class GenieXEngine(private val context: Context) : LlmEngine {
                 wrapper.generateStreamFlow(prompt, genConfig).collect { result ->
                     when (result) {
                         is LlmStreamResult.Token -> {
-                            Log.d("GenieXEngine", "Token: ${result.text}")
+                            // Log.d("GenieXEngine", "Token: ${result.text}")
                             _events.emit(LlmEngine.Event.Ongoing(result.text))
                         }
                         is LlmStreamResult.Completed -> {
@@ -132,5 +138,9 @@ class GenieXEngine(private val context: Context) : LlmEngine {
         llmWrapper = null
         loadedModelPath = null
         currentProfile = null
+    }
+
+    override suspend fun stop() {
+        llmWrapper?.stopStream()
     }
 }

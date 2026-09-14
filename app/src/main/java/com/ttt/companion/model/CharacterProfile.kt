@@ -19,7 +19,7 @@ data class CharacterProfile(
 
     // Inference parameters
     val temperature: Float = 0.7f,
-    val maxTokens: Int = 512,
+    val maxTokens: Int = 1024,
     val repeatPenalty: Float = 1.1f,
     val presencePenalty: Float = 0.6f,
     val skipThinking: Boolean = false
@@ -40,7 +40,6 @@ fun defaultCharacter(filesDir: File) = CharacterProfile(
         STRICT RULES:
         Keep responses to 1-3 sentences MAX. Text message style.
         Speak casually. No essays, no philosophizing, no formal AI talk.
-        NEVER draft responses or analyse the request, and don't overthink stuff if its not necessary
     """.trimIndent(),
     modelPath       = File(File(filesDir, ModelConfig.MODEL_DIR), ModelConfig.MODEL_FILENAME).absolutePath,
     voiceSamplePath = File(File(filesDir, AudioConfig.VOICE_SAMPLE_DIR), AudioConfig.VOICE_SAMPLE_FILE).absolutePath,
@@ -49,7 +48,7 @@ fun defaultCharacter(filesDir: File) = CharacterProfile(
     
     // Default inference settings for Aria
     temperature   = 0.8f,
-    maxTokens     = 512,
+    maxTokens     = 1024,
     repeatPenalty = 1.1f,
     skipThinking  = true
 )
