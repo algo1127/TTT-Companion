@@ -152,7 +152,7 @@ fun UserScreen(viewModel: MainViewModel, onBackClick: () -> Unit) {
                     Text("Database is empty. Aria has no long-term memories yet.", color = Color.Gray, fontSize = 12.sp)
                 } else {
                     memories.forEach { entry ->
-                        MemoryItem(entry)
+                        MemoryItem(entry, onDelete = { viewModel.deleteMemory(it) })
                         Spacer(Modifier.height(8.dp))
                     }
                 }
@@ -194,26 +194,34 @@ fun UserScreen(viewModel: MainViewModel, onBackClick: () -> Unit) {
 }
 
 @Composable
-fun MemoryItem(entry: com.ttt.companion.memory.MemoryEntry) {
+fun MemoryItem(entry: com.ttt.companion.memory.MemoryEntry, onDelete: (com.ttt.companion.memory.MemoryEntry) -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = Color.White.copy(alpha = 0.05f),
         shape = RoundedCornerShape(12.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text(
-                text = java.text.DateFormat.getDateTimeInstance().format(java.util.Date(entry.timestamp)),
-                color = Color(0xFF6699FF),
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = entry.summary,
-                color = Color.White,
-                fontSize = 13.sp
-            )
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = java.text.DateFormat.getDateTimeInstance().format(java.util.Date(entry.timestamp)),
+                    color = Color(0xFF6699FF),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = entry.summary,
+                    color = Color.White,
+                    fontSize = 13.sp
+                )
+            }
+            IconButton(onClick = { onDelete(entry) }) {
+                Icon(Icons.Default.Delete, "Delete", tint = Color.Red.copy(alpha = 0.6f), modifier = Modifier.size(20.dp))
+            }
         }
     }
 }

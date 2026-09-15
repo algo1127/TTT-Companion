@@ -9,68 +9,45 @@ import kotlinx.coroutines.withContext
 class MemoryManager(context: Context) {
 
     private val dao = AppDatabase.get(context).memoryDao()
+    private val vectorManager = VectorMemoryManager(context)
+    private val architect = MemoryArchitect(context)
+
+    private val prefs = context.getSharedPreferences("llm_prefs", Context.MODE_PRIVATE)
 
     /**
      * Build the "[Persistent Memory]" block to inject into the system prompt.
      * Returns empty string if there's no memory yet (first ever session).
      */
     suspend fun buildMemoryBlock(characterId: String): String {
-        val recent = dao.getRecent(characterId, limit = 5)
-        if (recent.isEmpty()) return ""
-
-        return buildString {
-            append("\n\n[Memory from previous sessions]\n")
-            // Oldest first so the narrative reads chronologically
-            recent.reversed().forEach { entry ->
-                append("- ").append(entry.summary.trim()).append("\n")
-            }
-        }
+        // Use the vector manager for semantic retrieval
+        // This makes the response context-aware rather than just recent-aware
+        return "" // Placeholder for now, LlmService calls findRelevant directly
     }
 
     /**
-     * Ask the LLM to summarize the session, then save it.
-     * Call this when the app goes to background or the user explicitly ends a session.
-     * Safe to call with an empty history — does nothing.
+     * Ask the Architect to summarize the session, then save it.
      */
     suspend fun summarizeAndSave(
         characterId: String,
         history: List<ChatMessage>,
-        llm: LlmService
+        @Suppress("UNUSED_PARAMETER") llm: LlmService
     ) = withContext(Dispatchers.IO) {
-        // Don't bother summarizing trivial sessions
         if (history.size < 2) return@withContext
 
-        val summarizerPrompt = """
-            /no_think
-            Summarize the key facts, events, and preferences from this
-            conversation in 1-3 short bullet points. Focus on things worth
-            remembering for future conversations (names, preferences, ongoing
-            topics, decisions made). Be concise. Output ONLY the bullet points,
-            no preamble.
-        """.trimIndent()
+        val cognitiveEnabled = prefs.getBoolean("cognitive_memory_enabled", false)
 
-        try {
-            val result = llm.chat(
-                history = history,
-                systemPrompt = summarizerPrompt,
-                characterId = characterId,
-                userName = "User",
-                forceCpu = false // Use current engine (GPU) for speed and memory stability
-            )
-
-            if (result.text.isNotBlank()) {
-                android.util.Log.i("MemoryManager", "Saving new memory: ${result.text}")
-                dao.insert(
-                    MemoryEntry(
-                        characterId = characterId,
-                        timestamp = System.currentTimeMillis(),
-                        summary = result.text
-                    )
-                )
+        if (cognitiveEnabled) {
+            android.util.Log.i("MemoryManager", "Architect: Extracting facts from session...")
+            val facts = architect.process(history)
+            if (facts.isEmpty()) {
+                android.util.Log.w("MemoryManager", "Architect: No facts extracted.")
             }
-        } catch (e: Exception) {
-            // Non-critical — losing one session's memory isn't fatal
-            android.util.Log.e("MemoryManager", "Failed to summarize session", e)
+            facts.forEach { fact ->
+                android.util.Log.i("MemoryManager", "Architect: Saving atomic fact: $fact")
+                vectorManager.saveFact(characterId, fact)
+            }
+        } else {
+            android.util.Log.i("MemoryManager", "Cognitive Memory disabled. Skipping Architect summarization.")
         }
     }
 
@@ -78,13 +55,17 @@ class MemoryManager(context: Context) {
         dao.getAll(characterId)
     }
 
-    suspend fun saveManual(characterId: String, summary: String) = withContext(Dispatchers.IO) {
-        dao.insert(
-            MemoryEntry(
-                characterId = characterId,
-                timestamp = System.currentTimeMillis(),
-                summary = summary
-            )
-        )
+    suspend fun deleteMemory(entry: MemoryEntry) = withContext(Dispatchers.IO) {
+        dao.delete(entry)
+    }
+
+    suspend fun saveManual(characterId: String, text: String) = withContext(Dispatchers.IO) {
+        val cognitiveEnabled = prefs.getBoolean("cognitive_memory_enabled", false)
+        val finalFact = if (cognitiveEnabled) {
+            architect.formatManualMemory(text)
+        } else {
+            text
+        }
+        vectorManager.saveFact(characterId, finalFact)
     }
 }

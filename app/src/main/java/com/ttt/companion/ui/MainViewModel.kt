@@ -742,6 +742,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun deleteMemory(entry: com.ttt.companion.memory.MemoryEntry) {
+        viewModelScope.launch {
+            memoryManager.deleteMemory(entry)
+            loadMemories() // Refresh list
+        }
+    }
+
     fun addManualMemory(summary: String) {
         viewModelScope.launch {
             memoryManager.saveManual(character.id, summary)
