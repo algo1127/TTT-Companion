@@ -88,9 +88,9 @@ private fun ModeCard(
     Surface(
         modifier = modifier
             .height(200.dp)
-            .clip(RoundedCornerShape(24.dp))
-            .clickable { onClick() }
-            .shadow(if (isHovered) 20.dp else 0.dp, spotColor = color),
+            .shadow(if (isHovered) 20.dp else 0.dp, shape = RoundedCornerShape(16.dp), spotColor = color)
+            .clickable { onClick() },
+        shape = RoundedCornerShape(16.dp),
         color = Color.White.copy(alpha = 0.05f),
         border = androidx.compose.foundation.BorderStroke(1.dp, color.copy(alpha = 0.3f))
     ) {

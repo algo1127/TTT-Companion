@@ -107,6 +107,7 @@ class LlmService(private val context: Context) {
         val prompt = buildString {
             append("<|im_start|>system\n")
             append(systemPrompt.trim())
+
             append("\n\n<user_info>\nYou are talking to $userName. Address them by this name. Never call them 'human', 'user', or 'mortal'.\n</user_info>")
             
             // XML Tagging for strict context isolation
@@ -234,9 +235,14 @@ class LlmService(private val context: Context) {
             val activity = context as? android.app.Activity
             activity?.window?.setSustainedPerformanceMode(true)
             
+            val stopWords = mutableListOf("<|im_end|>", "<|endoftext|>", "###")
+            if (!forceReasoning) {
+                stopWords.add("<think>")
+            }
+            
             engine.predict(
                 prompt = prompt,
-                stopWords = if (!forceReasoning) listOf("<think>") else emptyList()
+                stopWords = stopWords
             )
             
             val initialResult = finishedDeferred.await()

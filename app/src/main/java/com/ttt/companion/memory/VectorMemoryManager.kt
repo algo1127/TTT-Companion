@@ -10,17 +10,22 @@ import java.util.Locale
 class VectorMemoryManager(context: Context) {
 
     private val dao = AppDatabase.get(context).memoryDao()
+    private val embeddingEngine = EmbeddingEngine(context)
 
     /**
-     * Finds the most relevant memories for a given user [query].
+     * Finds the most relevant memories using true Vector Similarity.
      */
     suspend fun findRelevant(characterId: String, query: String, limit: Int = 3): String {
         val allMemories = dao.getAll(characterId)
         if (allMemories.isEmpty()) return ""
 
-        val scored = allMemories.map { entry ->
-            entry to calculateRelevance(entry.summary, query)
-        }.filter { it.second > 0 }
+        val queryVector = embeddingEngine.embed(query)
+
+        val scored = allMemories.mapNotNull { entry ->
+            val vector = entry.vector ?: return@mapNotNull null
+            val score = embeddingEngine.calculateSimilarity(queryVector, vector)
+            entry to score
+        }.filter { it.second > 0.45f } // Similarity threshold
          .sortedByDescending { it.second }
          .take(limit)
 
@@ -33,11 +38,29 @@ class VectorMemoryManager(context: Context) {
         }
     }
 
-    private fun calculateRelevance(summary: String, query: String): Int {
-        val stopWords = setOf("the", "a", "an", "and", "or", "but", "i", "you", "is", "was", "my", "to", "of")
-        val summaryWords = summary.lowercase(Locale.ROOT).split(Regex("\\W+")).filter { it.length > 2 && it !in stopWords }.toSet()
-        val queryWords = query.lowercase(Locale.ROOT).split(Regex("\\W+")).filter { it.length > 2 && it !in stopWords }
+    /**
+     * Used by the Memory Architect to save a new fact and prune conflicting ones.
+     */
+    suspend fun saveFact(characterId: String, text: String) {
+        val newVector = embeddingEngine.embed(text)
         
-        return queryWords.count { it in summaryWords }
+        // Pruning logic: If we find a very high similarity match (0.85+), 
+        // it's likely an update or contradiction.
+        val existing = dao.getAll(characterId)
+        existing.forEach { entry ->
+            entry.vector?.let { v ->
+                val similarity = embeddingEngine.calculateSimilarity(newVector, v)
+                if (similarity > 0.85f) {
+                    dao.delete(entry)
+                }
+            }
+        }
+
+        dao.insert(MemoryEntry(
+            characterId = characterId,
+            timestamp = System.currentTimeMillis(),
+            summary = text,
+            vector = newVector
+        ))
     }
 }

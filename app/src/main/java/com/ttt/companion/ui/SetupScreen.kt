@@ -119,7 +119,7 @@ fun SetupScreen(viewModel: MainViewModel) {
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 contentPadding = PaddingValues(bottom = 4.dp)
             ) {
-                items(ModelConfig.LLM_VARIANTS) { variant ->
+                items(ModelConfig.LLM_VARIANTS.filter { !it.isSpecialist }) { variant ->
                     LlmModelCardSmall(
                         variant = variant,
                         isSelected = variant.id == selectedLlmId,
@@ -141,7 +141,8 @@ fun SetupScreen(viewModel: MainViewModel) {
             Spacer(Modifier.height(8.dp))
             NeuralRegistryList(
                 currentPhase = (downloadState as? DownloadState.Downloading)?.phase,
-                selectedLlmId = selectedLlmId
+                selectedLlmId = selectedLlmId,
+                viewModel = viewModel
             )
 
             Spacer(Modifier.height(24.dp))
@@ -166,18 +167,25 @@ fun SetupScreen(viewModel: MainViewModel) {
 @Composable
 private fun NeuralRegistryList(
     currentPhase: com.ttt.companion.llm.SetupPhase?,
-    selectedLlmId: String
+    selectedLlmId: String,
+    viewModel: MainViewModel
 ) {
+    val cognitiveMemoryEnabled by viewModel.cognitiveMemoryEnabled.collectAsStateWithLifecycle()
     val pulseAlpha by rememberInfiniteTransition(label = "p").animateFloat(
         1f, 0.4f, infiniteRepeatable(tween(800), RepeatMode.Reverse), label = "a"
     )
 
     val llmVariant = ModelConfig.getLlmVariant(selectedLlmId)
-    val phases = listOf(
+    val phases = mutableListOf(
         com.ttt.companion.llm.SetupPhase.LLM to "Main Core (${llmVariant.displayName})",
-        com.ttt.companion.llm.SetupPhase.STT to "Speech Processor (Whisper)",
-        com.ttt.companion.llm.SetupPhase.TTS to "Vocal Synthesis (Kokoro)"
     )
+    
+    if (cognitiveMemoryEnabled) {
+        phases.add(com.ttt.companion.llm.SetupPhase.LLM to "Memory Architect (Qwen 0.5B)")
+    }
+    
+    phases.add(com.ttt.companion.llm.SetupPhase.STT to "Speech Processor (Whisper)")
+    phases.add(com.ttt.companion.llm.SetupPhase.TTS to "Vocal Synthesis (Kokoro)")
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -213,35 +221,36 @@ private fun LlmModelCardSmall(variant: ModelConfig.ModelVariant, isSelected: Boo
     val borderColor = if (isSelected) Color(0xFF6699FF) else Color.White.copy(alpha = 0.1f)
     val bgColor = if (isSelected) Color(0xFF6699FF).copy(alpha = 0.1f) else Color.White.copy(alpha = 0.02f)
 
-    Column(
+    Surface(
         modifier = Modifier
             .width(180.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(bgColor)
-            .border(1.dp, borderColor, RoundedCornerShape(16.dp))
-            .clickable { onSelect() }
-            .padding(16.dp)
+            .clickable { onSelect() },
+        shape = RoundedCornerShape(16.dp),
+        color = bgColor,
+        border = BorderStroke(1.dp, borderColor)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                if (isSelected) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
-                null,
-                tint = if (isSelected) Color(0xFF6699FF) else Color.Gray,
-                modifier = Modifier.size(16.dp)
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(variant.displayName, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    if (isSelected) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
+                    null,
+                    tint = if (isSelected) Color(0xFF6699FF) else Color.Gray,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(variant.displayName, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            }
+            Spacer(Modifier.height(4.dp))
+            if (!variant.isRecommended) {
+                Text("NOT RECOMMENDED", color = Color.Red, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+            } else if (variant.isReasoning) {
+                Text("EXPERIMENTAL", color = Color(0xFF6699FF), fontSize = 8.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(variant.description, color = Color.Gray, fontSize = 10.sp, minLines = 2, maxLines = 2)
+            Spacer(Modifier.height(8.dp))
+            Text(variant.sizeLabel, color = Color(0xFF6699FF), fontSize = 11.sp, fontWeight = FontWeight.Bold)
         }
-        Spacer(Modifier.height(4.dp))
-        if (!variant.isRecommended) {
-            Text("NOT RECOMMENDED", color = Color.Red, fontSize = 8.sp, fontWeight = FontWeight.Bold)
-        } else if (variant.isReasoning) {
-            Text("EXPERIMENTAL", color = Color(0xFF6699FF), fontSize = 8.sp, fontWeight = FontWeight.Bold)
-        }
-        Spacer(Modifier.height(4.dp))
-        Text(variant.description, color = Color.Gray, fontSize = 10.sp, minLines = 2, maxLines = 2)
-        Spacer(Modifier.height(8.dp))
-        Text(variant.sizeLabel, color = Color(0xFF6699FF), fontSize = 11.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -250,29 +259,30 @@ private fun ModelCard(variant: AudioConfig.WhisperVariant, isSelected: Boolean, 
     val borderColor = if (isSelected) Color(0xFF6699FF) else Color.White.copy(alpha = 0.1f)
     val bgColor = if (isSelected) Color(0xFF6699FF).copy(alpha = 0.1f) else Color.White.copy(alpha = 0.02f)
 
-    Column(
+    Surface(
         modifier = Modifier
             .width(180.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(bgColor)
-            .border(1.dp, borderColor, RoundedCornerShape(16.dp))
-            .clickable { onSelect() }
-            .padding(16.dp)
+            .clickable { onSelect() },
+        shape = RoundedCornerShape(16.dp),
+        color = bgColor,
+        border = BorderStroke(1.dp, borderColor)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                if (isSelected) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
-                null,
-                tint = if (isSelected) Color(0xFF6699FF) else Color.Gray,
-                modifier = Modifier.size(16.dp)
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(variant.displayName, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    if (isSelected) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
+                    null,
+                    tint = if (isSelected) Color(0xFF6699FF) else Color.Gray,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(variant.displayName, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(variant.description, color = Color.Gray, fontSize = 10.sp, minLines = 3, maxLines = 3)
+            Spacer(Modifier.height(12.dp))
+            Text(variant.sizeLabel, color = Color(0xFF6699FF), fontSize = 11.sp, fontWeight = FontWeight.Bold)
         }
-        Spacer(Modifier.height(8.dp))
-        Text(variant.description, color = Color.Gray, fontSize = 10.sp, minLines = 3, maxLines = 3)
-        Spacer(Modifier.height(12.dp))
-        Text(variant.sizeLabel, color = Color(0xFF6699FF), fontSize = 11.sp, fontWeight = FontWeight.Bold)
     }
 }
 

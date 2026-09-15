@@ -27,8 +27,9 @@ class GenieXEngine(private val context: Context) : LlmEngine {
 
     override val engineName: String = "GenieX"
     override val computeUnit: String 
-        get() = "GPU" // Currently forced to GPU in createInput
+        get() = currentComputeUnit
 
+    private var currentComputeUnit: String = "GPU"
     private var llmWrapper: LlmWrapper? = null
     private var loadedModelPath: String? = null
     private var currentProfile: CharacterProfile? = null
@@ -52,15 +53,21 @@ class GenieXEngine(private val context: Context) : LlmEngine {
             val modelFile = File(profile.modelPath)
             if (!modelFile.exists()) return LlmService.LoadState.Error("Model file not found")
 
+            currentComputeUnit = "GPU"
+
             val modelConfig = ModelConfig(
                 nCtx = contextSize,
-                nGpuLayers = -1 
+                nGpuLayers = -1,
+                nBatch = 512,
+                nUBatch = 128
             )
+            Log.d("GenieXEngine", "Initializing on GPU with nCtx=$contextSize")
+            
             val createInput = LlmCreateInput(
                 model_path = modelFile.absolutePath,
                 config = modelConfig,
-                runtime_id = "llama_cpp",
-                compute_unit = "gpu" // Use Adreno GPU for better stability with GGUF
+                runtime_id = GenieXSdk.PLUGIN_ID_LLAMA_CPP,
+                compute_unit = "gpu"
             )
 
             val result = LlmWrapper.builder()
@@ -86,6 +93,11 @@ class GenieXEngine(private val context: Context) : LlmEngine {
         tempOverride: Float?,
         stopWords: List<String>
     ) {
+        Log.d("GenieXEngine", "Predicting with prompt length: ${prompt.length}")
+        if (prompt.length < 500) {
+            Log.v("GenieXEngine", "Prompt content: $prompt")
+        }
+        
         val wrapper = llmWrapper ?: throw Exception("GenieX not initialized")
         val profile = currentProfile ?: throw Exception("Profile not set")
 

@@ -15,10 +15,21 @@ object ModelConfig {
         val filename: String,
         val subDir: String,
         val isReasoning: Boolean,
-        val isRecommended: Boolean = true
+        val isRecommended: Boolean = true,
+        val isSpecialist: Boolean = false
     )
 
     val LLM_VARIANTS = listOf(
+        ModelVariant(
+            id = "qwen3-vl-4b-instruct",
+            displayName = "Qwen 3 VL 4B",
+            description = "Multimodal-ready and highly efficient instruction-tuned model.",
+            sizeLabel = "~2.6 GB",
+            url = "https://huggingface.co/unsloth/Qwen3-VL-4B-Instruct-GGUF/resolve/main/Qwen3-VL-4B-Instruct-Q4_0.gguf",
+            filename = "qwen3-vl-4b-instruct-q4_0.gguf",
+            subDir = "models/qwen3-vl-4b-instruct",
+            isReasoning = false
+        ),
         ModelVariant(
             id = "qwen3-4b-instruct",
             displayName = "Qwen 3 4B Instruct",
@@ -45,10 +56,21 @@ object ModelConfig {
             description = "[EXPERIMENTAL] Uses a thinking chain. Highly prone to glitches and slow inference.",
             sizeLabel = "~2.7 GB",
             url = "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf",
-            filename = "qwen3.5-4b-reasoning-q4_k_m.gguf",
+            filename = "qwen3-4b-reasoning-q4_k_m.gguf",
             subDir = "models/qwen3.5-4b-reasoning",
             isReasoning = true,
             isRecommended = false
+        ),
+        ModelVariant(
+            id = "qwen2.5-0.5b-architect",
+            displayName = "Qwen 2.5 0.5B (Architect)",
+            description = "Tiny model used for organizing and cleaning memory. Runs in background.",
+            sizeLabel = "~350 MB",
+            url = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+            filename = "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+            subDir = "models/architect",
+            isReasoning = false,
+            isSpecialist = true
         )
     )
 

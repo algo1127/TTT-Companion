@@ -38,6 +38,7 @@ fun SettingsScreen(viewModel: MainViewModel) {
     val nudgeType by viewModel.nudgeType.collectAsStateWithLifecycle()
     val useOfficialNudge by viewModel.useOfficialNudge.collectAsStateWithLifecycle()
     val selectedLlmId by viewModel.selectedLlmId.collectAsStateWithLifecycle()
+    val cognitiveMemoryEnabled by viewModel.cognitiveMemoryEnabled.collectAsStateWithLifecycle()
 
     SettingsScreenContent(
         contextSize = contextSize,
@@ -50,6 +51,7 @@ fun SettingsScreen(viewModel: MainViewModel) {
         nudgeType = nudgeType,
         useOfficialNudge = useOfficialNudge,
         selectedLlmId = selectedLlmId,
+        cognitiveMemoryEnabled = cognitiveMemoryEnabled,
         onBackClick = { viewModel.setScreen(MainViewModel.Screen.VRM) },
         onRestartLlmClick = { viewModel.restartLlm() },
         onRestartVrmClick = { viewModel.restartVrmEngine() },
@@ -63,7 +65,8 @@ fun SettingsScreen(viewModel: MainViewModel) {
         onToggleReasoning = { viewModel.setReasoningEnabled(it) },
         onNudgeTypeChange = { viewModel.setNudgeType(it) },
         onToggleOfficialNudge = { viewModel.setUseOfficialNudge(it) },
-        onLlmModelChange = { viewModel.selectLlmModel(it) }
+        onLlmModelChange = { viewModel.selectLlmModel(it) },
+        onToggleCognitiveMemory = { viewModel.setCognitiveMemoryEnabled(it) }
     )
 }
 
@@ -80,6 +83,7 @@ fun SettingsScreenContent(
     nudgeType: LlmService.NudgeType,
     useOfficialNudge: Boolean,
     selectedLlmId: String,
+    cognitiveMemoryEnabled: Boolean,
     onBackClick: () -> Unit,
     onRestartLlmClick: () -> Unit,
     onRestartVrmClick: () -> Unit,
@@ -93,7 +97,8 @@ fun SettingsScreenContent(
     onToggleReasoning: (Boolean) -> Unit,
     onNudgeTypeChange: (LlmService.NudgeType) -> Unit,
     onToggleOfficialNudge: (Boolean) -> Unit,
-    onLlmModelChange: (String) -> Unit
+    onLlmModelChange: (String) -> Unit,
+    onToggleCognitiveMemory: (Boolean) -> Unit
 ) {
     var localContextSize by remember(contextSize) { mutableIntStateOf(contextSize) }
 
@@ -131,7 +136,7 @@ fun SettingsScreenContent(
         ) {
             SettingsSection(title = "Core Brain (LLM)") {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    ModelConfig.LLM_VARIANTS.forEach { variant ->
+                    ModelConfig.LLM_VARIANTS.filter { !it.isSpecialist }.forEach { variant ->
                         LlmModelCard(
                             variant = variant,
                             isSelected = variant.id == selectedLlmId,
@@ -172,7 +177,7 @@ fun SettingsScreenContent(
                         modifier = Modifier.fillMaxWidth(),
                         enabled = localContextSize != contextSize,
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6699FF)),
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(16.dp)
                     ) {
                         Text("Apply & Restart LLM")
                     }
@@ -273,6 +278,13 @@ fun SettingsScreenContent(
             }
 
             SettingsSection(title = "Experimental") {
+                ToggleOption(
+                    title = "Cognitive Memory (Architect)",
+                    subtitle = "Use a secondary 0.5B model to summarize and organize long-term facts. (Requires extra RAM)",
+                    checked = cognitiveMemoryEnabled,
+                    onCheckedChange = onToggleCognitiveMemory
+                )
+
                 val variant = ModelConfig.getLlmVariant(selectedLlmId)
                 
                 if (variant.isReasoning) {
@@ -365,8 +377,8 @@ fun LlmModelCard(variant: ModelConfig.ModelVariant, isSelected: Boolean, onClick
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
             .clickable { onClick() },
+        shape = RoundedCornerShape(16.dp),
         color = if (isSelected) Color(0xFF6699FF).copy(alpha = 0.1f) else Color.White.copy(alpha = 0.05f),
         border = androidx.compose.foundation.BorderStroke(1.dp, color)
     ) {
@@ -398,7 +410,7 @@ fun LlmModelCard(variant: ModelConfig.ModelVariant, isSelected: Boolean, onClick
 fun NudgeButton(label: String, isSelected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Surface(
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(16.dp))
             .clickable { onClick() },
         color = if (isSelected) Color(0xFF6699FF).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.05f),
         border = androidx.compose.foundation.BorderStroke(
@@ -440,7 +452,7 @@ fun ServiceButton(label: String, icon: ImageVector, onClick: () -> Unit, color: 
             containerColor = color.copy(alpha = 0.15f),
             contentColor = color
         ),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(16.dp),
         contentPadding = PaddingValues(16.dp)
     ) {
         Row(

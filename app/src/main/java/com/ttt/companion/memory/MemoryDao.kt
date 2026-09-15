@@ -17,4 +17,10 @@ interface MemoryDao {
 
     @Query("SELECT COUNT(*) FROM memory_entries WHERE characterId = :characterId")
     suspend fun count(characterId: String): Int
+
+    @Delete
+    suspend fun delete(entry: MemoryEntry)
+
+    @Query("DELETE FROM memory_entries WHERE characterId = :characterId")
+    suspend fun clear(characterId: String)
 }

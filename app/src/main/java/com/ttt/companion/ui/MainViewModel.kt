@@ -169,6 +169,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     )
     val useOfficialNudge = _useOfficialNudge.asStateFlow()
 
+    private val _cognitiveMemoryEnabled = MutableStateFlow(
+        app.getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
+            .getBoolean("cognitive_memory_enabled", false)
+    )
+    val cognitiveMemoryEnabled = _cognitiveMemoryEnabled.asStateFlow()
+
     private val _nudgeType = MutableStateFlow(
         LlmService.NudgeType.valueOf(
             app.getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
@@ -290,9 +296,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private fun allModelsReady(): Boolean {
         val whisper = AudioConfig.getWhisperVariant(_selectedWhisperId.value)
         val llmVariant = com.ttt.companion.llm.ModelConfig.getLlmVariant(_selectedLlmId.value)
-        return downloader.isModelReady(llmVariant) &&
+        val architectVariant = com.ttt.companion.llm.ModelConfig.LLM_VARIANTS.find { it.isSpecialist }
+        
+        val mainModelsReady = downloader.isModelReady(llmVariant) &&
                 audioDl.areFilesReady(whisper.subDir, whisper.files) &&
                 audioDl.areFilesReady(AudioConfig.TTS_DIR, AudioConfig.TTS_FILES)
+        
+        val architectReady = if (_cognitiveMemoryEnabled.value && architectVariant != null) {
+            downloader.isModelReady(architectVariant)
+        } else true
+        
+        return mainModelsReady && architectReady
     }
 
     // --- Download sequence --------------------------------------------------
@@ -303,6 +317,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             if (!downloader.isModelReady(llmVariant)) {
                 downloader.download(llmVariant) { state -> _downloadState.value = state }
                 if (_downloadState.value is DownloadState.Failed) return@launch
+            }
+
+            if (_cognitiveMemoryEnabled.value) {
+                val architectVariant = com.ttt.companion.llm.ModelConfig.LLM_VARIANTS.find { it.isSpecialist }
+                if (architectVariant != null && !downloader.isModelReady(architectVariant)) {
+                    downloader.download(architectVariant) { state -> _downloadState.value = state }
+                    if (_downloadState.value is DownloadState.Failed) return@launch
+                }
             }
             
             val whisper = AudioConfig.getWhisperVariant(_selectedWhisperId.value)
@@ -782,6 +804,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .edit()
             .putBoolean("use_official_nudge", enabled)
             .apply()
+    }
+
+    fun setCognitiveMemoryEnabled(enabled: Boolean) {
+        _cognitiveMemoryEnabled.value = enabled
+        getApplication<Application>().getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
+            .edit()
+            .putBoolean("cognitive_memory_enabled", enabled)
+            .apply()
+            
+        // If enabling, ensure models are ready
+        if (enabled && !allModelsReady()) {
+            _downloadState.value = DownloadState.Idle
+        }
     }
 
     fun setNudgeType(type: LlmService.NudgeType) {
