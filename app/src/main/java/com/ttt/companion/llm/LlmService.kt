@@ -55,7 +55,13 @@ class LlmService(private val context: Context) {
 
     fun unload() {
         engine.unload()
-        lastProfile = null
+        // We keep lastProfile so we can reload it after the Architect finishes
+    }
+
+    suspend fun reloadLastModel(): LoadState {
+        val profile = lastProfile ?: return LoadState.Idle
+        Log.i("LlmService", "Reloading last model: ${profile.name}")
+        return engine.loadModel(profile, lastContextSize)
     }
 
     fun stop() {

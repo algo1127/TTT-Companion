@@ -1,77 +1,56 @@
 package com.ttt.companion.memory
 
 import android.content.Context
-import android.util.Log
-import com.ttt.companion.llm.LlamaCppEngine
-import com.ttt.companion.llm.LlmEngine
-import com.ttt.companion.llm.LlmService
 import com.ttt.companion.llm.ModelConfig
 import com.ttt.companion.llm.ModelDownloader
 import com.ttt.companion.model.CharacterProfile
 import com.ttt.companion.model.ChatMessage
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import org.nehuatl.llamacpp.LlamaHelper
+import java.io.File
 
 /**
- * The specialist service that runs a small 0.5B model on the CPU
- * to organize, clean, and format memories.
+ * The specialist service using the raw LlamaHelper library directly.
+ * Designed to be loaded and unloaded strictly in sequence with the main model.
  */
 class MemoryArchitect(private val context: Context) {
     private val TAG = "MemoryArchitect"
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private val engine = LlamaCppEngine(context.contentResolver)
+    
+    private val _rawEvents = MutableSharedFlow<LlamaHelper.LLMEvent>(extraBufferCapacity = 64)
+    private val helper = LlamaHelper(context.contentResolver, scope, _rawEvents)
     private val downloader = ModelDownloader(context)
     
     private var isLoaded = false
 
-    private val architectPrompt = """
-        <|im_start|>system
-        You are a memory architect. Your job is to extract concise, atomic facts from the conversation.
-        RULES:
-        1. Extract only permanent facts (preferences, names, locations, relationships).
-        2. Remove all conversational filler, jokes, or sarcasm.
-        3. Remove the user's name if mentioned; use "User" instead.
-        4. Format each fact inside <fact></fact> XML tags.
-        5. If a new fact contradicts an old one, output it clearly.
-        6. Output ONLY the XML tags. No preamble.
-        <|im_end|>
-    """.trimIndent()
+    private val architectPrompt = "Instructions: Extract a short, declarative fact from the input. Rewrite it as 'User [fact]'. Remove questions, greetings, and conversational filler. No names. No extra text. No quotes.\nExample Input: I love blue cars.\nExample Output: User likes blue cars.\nExample Input: Did you know I live in New York City?\nExample Output: User lives in New York City.\n\n"
 
     suspend fun process(history: List<ChatMessage>): List<String> = withContext(Dispatchers.IO) {
         if (!ensureLoaded()) return@withContext emptyList()
 
-        val prompt = buildString {
-            append(architectPrompt)
-            history.takeLast(10).forEach { msg ->
-                val role = if (msg.role == "user") "user" else "assistant"
-                append("<|im_start|>$role\n${msg.content}\n<|im_end|>\n")
-            }
-            append("<|im_start|>assistant\n")
+        val chatBlock = history.takeLast(6).joinToString("\n") { msg ->
+            "${if (msg.role == "user") "Input" else "Context"}: ${msg.content}"
         }
 
-        val result = runInference(prompt)
-        parseFacts(result)
+        val prompt = "${architectPrompt}Input: $chatBlock\nOutput: User "
+        val raw = runInference(prompt)
+        val result = if (raw.startsWith("User ")) raw else "User $raw"
+        
+        unload()
+        listOf(result.trim())
     }
 
     suspend fun formatManualMemory(text: String): String = withContext(Dispatchers.IO) {
         if (!ensureLoaded()) return@withContext text
 
-        val prompt = """
-            $architectPrompt
-            <|im_start|>user
-            Format this manual memory entry properly: $text
-            <|im_end|>
-            <|im_start|>assistant
-        """.trimIndent()
-
-        val result = runInference(prompt)
-        val facts = parseFacts(result)
-        facts.firstOrNull() ?: text
+        val prompt = "${architectPrompt}Input: $text\nOutput: User "
+        val raw = runInference(prompt)
+        val result = if (raw.startsWith("User ")) raw else "User $raw"
+        
+        unload()
+        result.trim()
     }
 
     private suspend fun ensureLoaded(): Boolean {
@@ -81,51 +60,80 @@ class MemoryArchitect(private val context: Context) {
         val modelFile = downloader.getModelFile(variant)
         if (!modelFile.exists()) return false
 
-        val profile = CharacterProfile(
-            id = "architect",
-            name = "Architect",
-            systemPrompt = architectPrompt,
-            modelPath = modelFile.absolutePath,
-            maxTokens = 256,
-            temperature = 0.1f // Very low for deterministic formatting
-        )
+        val deferred = CompletableDeferred<Boolean>()
+        val job = scope.launch {
+            _rawEvents.collect { event ->
+                when (event) {
+                    is LlamaHelper.LLMEvent.Loaded -> deferred.complete(true)
+                    is LlamaHelper.LLMEvent.Error -> {
+                        android.util.Log.e(TAG, "Architect Load Error: ${event.message}")
+                        deferred.complete(false)
+                    }
+                    else -> {}
+                }
+            }
+        }
 
-        val state = engine.loadModel(profile, 1024)
-        isLoaded = state is LlmService.LoadState.Ready
+        withContext(Dispatchers.IO) {
+            helper.load(
+                path = "file://${modelFile.absolutePath}", 
+                contextLength = 512
+            ) {}
+        }
+
+        isLoaded = deferred.await()
+        job.cancel()
         return isLoaded
     }
 
     private suspend fun runInference(prompt: String): String {
-        android.util.Log.d(TAG, "Architect Prompt: $prompt")
         val result = StringBuilder()
         val deferred = CompletableDeferred<String>()
+        val stops = listOf("\n", "Input:", "Instructions:", "<|", "</fact>")
         
         val job = scope.launch {
-            engine.events.collect { event ->
+            _rawEvents.collect { event ->
                 when (event) {
-                    is LlmEngine.Event.Ongoing -> result.append(event.word)
-                    is LlmEngine.Event.Done -> deferred.complete(result.toString())
-                    is LlmEngine.Event.Error -> deferred.completeExceptionally(Exception(event.message))
+                    is LlamaHelper.LLMEvent.Ongoing -> {
+                        result.append(event.word)
+                        if (stops.any { result.contains(it) }) {
+                            helper.stopPrediction()
+                        }
+                    }
+                    is LlamaHelper.LLMEvent.Done -> deferred.complete(result.toString())
+                    is LlamaHelper.LLMEvent.Error -> deferred.completeExceptionally(Exception(event.message))
                     else -> {}
                 }
             }
         }
 
         try {
-            engine.predict(prompt, stopWords = listOf("<|im_end|>", "</fact>\n\n"))
-            return deferred.await()
+            helper.predict(prompt)
+            val final = deferred.await()
+            android.util.Log.d("MemoryArchitect", "Architect Raw Output: $final")
+            
+            // Clean up common 0.5B artifacts and strip tags/quotes if they leaked in
+            return final.split("\n")[0]
+                .replace(Regex("<fact>", RegexOption.IGNORE_CASE), "")
+                .replace(Regex("</fact>", RegexOption.IGNORE_CASE), "")
+                .replace(Regex("^\\d+\\.\\s*"), "") // Strip "1. "
+                .replace(Regex("(?i)^fact:\\s*"), "") // Strip "Fact: "
+                .replace("\"", "") // Strip double quotes
+                .replace("'", "")  // Strip single quotes
+                .trim()
         } finally {
             job.cancel()
         }
     }
 
     private fun parseFacts(text: String): List<String> {
-        val regex = Regex("<fact>(.*?)</fact>", RegexOption.DOT_MATCHES_ALL)
-        return regex.findAll(text).map { it.groupValues[1].trim() }.toList()
+        // Since runInference now returns the cleaned fact directly, 
+        // we just wrap it in a list.
+        return if (text.isNotBlank()) listOf(text) else emptyList()
     }
-    
+
     fun unload() {
-        engine.unload()
+        helper.release()
         isLoaded = false
     }
 }

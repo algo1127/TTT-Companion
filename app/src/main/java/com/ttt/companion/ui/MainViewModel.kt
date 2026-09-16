@@ -751,8 +751,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun addManualMemory(summary: String) {
         viewModelScope.launch {
-            memoryManager.saveManual(character.id, summary)
-            loadMemories() // Refresh
+            memoryManager.saveManual(character.id, summary, llm)
+            loadMemories() // Refresh list
         }
     }
 

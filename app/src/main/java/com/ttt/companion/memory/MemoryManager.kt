@@ -30,24 +30,27 @@ class MemoryManager(context: Context) {
     suspend fun summarizeAndSave(
         characterId: String,
         history: List<ChatMessage>,
-        @Suppress("UNUSED_PARAMETER") llm: LlmService
+        llm: LlmService
     ) = withContext(Dispatchers.IO) {
         if (history.size < 2) return@withContext
 
         val cognitiveEnabled = prefs.getBoolean("cognitive_memory_enabled", false)
 
         if (cognitiveEnabled) {
-            android.util.Log.i("MemoryManager", "Architect: Extracting facts from session...")
-            val facts = architect.process(history)
-            if (facts.isEmpty()) {
-                android.util.Log.w("MemoryManager", "Architect: No facts extracted.")
+            android.util.Log.i("MemoryManager", "Cognitive Swap initiated: Unloading main LLM...")
+            llm.unload()
+            
+            try {
+                android.util.Log.i("MemoryManager", "Architect: Extracting facts from session...")
+                val facts = architect.process(history)
+                facts.forEach { fact ->
+                    android.util.Log.i("MemoryManager", "Architect: Saving atomic fact: $fact")
+                    vectorManager.saveFact(characterId, fact)
+                }
+            } finally {
+                android.util.Log.i("MemoryManager", "Cognitive Swap complete: Reloading main LLM...")
+                llm.reloadLastModel()
             }
-            facts.forEach { fact ->
-                android.util.Log.i("MemoryManager", "Architect: Saving atomic fact: $fact")
-                vectorManager.saveFact(characterId, fact)
-            }
-        } else {
-            android.util.Log.i("MemoryManager", "Cognitive Memory disabled. Skipping Architect summarization.")
         }
     }
 
@@ -59,13 +62,22 @@ class MemoryManager(context: Context) {
         dao.delete(entry)
     }
 
-    suspend fun saveManual(characterId: String, text: String) = withContext(Dispatchers.IO) {
+    suspend fun saveManual(characterId: String, text: String, llm: LlmService) = withContext(Dispatchers.IO) {
         val cognitiveEnabled = prefs.getBoolean("cognitive_memory_enabled", false)
-        val finalFact = if (cognitiveEnabled) {
-            architect.formatManualMemory(text)
+        
+        if (cognitiveEnabled) {
+            android.util.Log.i("MemoryManager", "Manual Swap initiated: Unloading main LLM...")
+            llm.unload()
+            
+            try {
+                val finalFact = architect.formatManualMemory(text)
+                vectorManager.saveFact(characterId, finalFact)
+            } finally {
+                android.util.Log.i("MemoryManager", "Manual Swap complete: Reloading main LLM...")
+                llm.reloadLastModel()
+            }
         } else {
-            text
+            vectorManager.saveFact(characterId, text)
         }
-        vectorManager.saveFact(characterId, finalFact)
     }
 }

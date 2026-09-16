@@ -14,7 +14,7 @@ android {
         minSdk = 27
         targetSdk = 36
         versionCode = 5
-        versionName = "2026-09-15A"
+        versionName = "2026-09-16B"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -55,7 +55,7 @@ android {
     }
 
     androidResources {
-        noCompress += listOf("pck", "gdscript", "gdc", "gd", "tscn", "gdshader", "godot")
+        noCompress += listOf("pck", "gdscript", "gdc", "gd", "tscn", "gdshader", "godot", "vrm")
     }
 
     @Suppress("DEPRECATION")
