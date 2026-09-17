@@ -26,6 +26,10 @@ class TtsService(private val context: Context) {
     private var currentTrack: AudioTrack? = null
     private var stopFlag = false
 
+    private val audioQueue = mutableListOf<FloatArray>()
+    private var isPlayingQueue = false
+    private var queueSampleRate = 24000
+
     sealed class LoadState {
         data object Idle    : LoadState()
         data object Loading : LoadState()
@@ -198,10 +202,50 @@ class TtsService(private val context: Context) {
                 return@withContext
             }
 
-            Log.d(TAG, "TTS done ÔÇö ${audio.samples.size} samples @ ${audio.sampleRate} Hz")
+            Log.d(TAG, "TTS done — ${audio.samples.size} samples @ ${audio.sampleRate} Hz")
             playPcm(audio.samples, audio.sampleRate, pitch = pitch)
         } catch (e: Exception) {
             Log.e(TAG, "TTS speak error", e)
+        }
+    }
+
+    suspend fun enqueue(text: String, voiceId: Int = 0, speed: Float = 1.0f) = withContext(Dispatchers.IO) {
+        val engine = tts ?: return@withContext
+        try {
+            val audio = engine.generate(text = text, sid = voiceId, speed = speed)
+            synchronized(audioQueue) {
+                audioQueue.add(audio.samples)
+                queueSampleRate = audio.sampleRate
+            }
+            Log.d(TAG, "Enqueued sentence: \"$text\"")
+        } catch (e: Exception) {
+            Log.e(TAG, "Enqueue error", e)
+        }
+    }
+
+    suspend fun playQueue(pitch: Float = 1.0f) = withContext(Dispatchers.IO) {
+        if (isPlayingQueue) return@withContext
+        isPlayingQueue = true
+        stopFlag = false
+        
+        try {
+            while (true) {
+                val samples = synchronized(audioQueue) {
+                    if (audioQueue.isEmpty()) null else audioQueue.removeAt(0)
+                } ?: break
+                
+                playPcm(samples, queueSampleRate, pitch = pitch)
+                if (stopFlag) break
+            }
+        } finally {
+            isPlayingQueue = false
+            synchronized(audioQueue) { audioQueue.clear() }
+        }
+    }
+
+    fun clearQueue() {
+        synchronized(audioQueue) {
+            audioQueue.clear()
         }
     }
 

@@ -175,6 +175,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     )
     val cognitiveMemoryEnabled = _cognitiveMemoryEnabled.asStateFlow()
 
+    private val _longTermMemoryEnabled = MutableStateFlow(
+        app.getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
+            .getBoolean("long_term_memory_enabled", false)
+    )
+    val longTermMemoryEnabled = _longTermMemoryEnabled.asStateFlow()
+
+    private val _parallelTtsEnabled = MutableStateFlow(
+        app.getSharedPreferences("experimental_prefs", Application.MODE_PRIVATE)
+            .getBoolean("parallel_tts", false)
+    )
+    val parallelTtsEnabled = _parallelTtsEnabled.asStateFlow()
+
     private val _nudgeType = MutableStateFlow(
         LlmService.NudgeType.valueOf(
             app.getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
@@ -444,6 +456,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         chatJob?.cancel()
         chatJob = viewModelScope.launch {
             try {
+                if (_parallelTtsEnabled.value) {
+                    ttsService.clearQueue()
+                }
+
                 val chatResult = llm.chat(
                     history = updatedHistory, 
                     systemPrompt = fullSystemPrompt, 
@@ -452,7 +468,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     forceReasoning = _reasoningEnabled.value,
                     reasoningThreshold = _reasoningThreshold.value,
                     nudgeType = _nudgeType.value,
-                    useOfficialNudge = _useOfficialNudge.value
+                    useOfficialNudge = _useOfficialNudge.value,
+                    onSentenceComplete = if (_parallelTtsEnabled.value && _ttsReady.value) {
+                        { sentence ->
+                            val clean = sentence.replace(Regex("[\\\"']"), "")
+                            if (clean.length > 2) {
+                                ttsService.enqueue(
+                                    text = clean,
+                                    voiceId = if (_useBlending.value) 0 else _customVoiceId.value,
+                                    speed = _ttsSpeed.value
+                                )
+                            }
+                        }
+                    } else null
                 )
                 val rawResponse = chatResult.text
                 val parseResult = com.ttt.companion.tools.ToolCallParser.parse(rawResponse)
@@ -472,18 +500,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     _isSpeaking.value = true
                     startLipSync()
                     try {
-                        val cleanResponse = response
-                            .replace(Regex("[\\\"']"), "") // Remove quotes
-                            .replace(Regex("([.!?])"), "$1 ") // Ensure space after punctuation
-                        
-                        val activeVoiceId = if (_useBlending.value) 0 else _customVoiceId.value
+                        if (_parallelTtsEnabled.value) {
+                            ttsService.playQueue(pitch = _ttsPitch.value)
+                        } else {
+                            val cleanResponse = response
+                                .replace(Regex("[\\\"']"), "") // Remove quotes
+                                .replace(Regex("([.!?])"), "$1 ") // Ensure space after punctuation
+                            
+                            val activeVoiceId = if (_useBlending.value) 0 else _customVoiceId.value
 
-                        ttsService.speak(
-                            text = cleanResponse, 
-                            voiceId = activeVoiceId,
-                            speed = _ttsSpeed.value,
-                            pitch = _ttsPitch.value
-                        )
+                            ttsService.speak(
+                                text = cleanResponse, 
+                                voiceId = activeVoiceId,
+                                speed = _ttsSpeed.value,
+                                pitch = _ttsPitch.value
+                            )
+                        }
                     } finally {
                         _isSpeaking.value = false
                         _audioState.value = AudioState.Idle
@@ -826,6 +858,28 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun setLongTermMemoryEnabled(enabled: Boolean) {
+        _longTermMemoryEnabled.value = enabled
+        getApplication<Application>().getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
+            .edit()
+            .putBoolean("long_term_memory_enabled", enabled)
+            .apply()
+        
+        // Refresh prompt if memory is disabled
+        viewModelScope.launch {
+            val memoryBlock = if (enabled) memoryManager.buildMemoryBlock(character.id) else ""
+            fullSystemPrompt = buildFullPrompt(_customName.value, _customPrompt.value) + "\n\n" + memoryBlock
+        }
+    }
+
+    fun setParallelTtsEnabled(enabled: Boolean) {
+        _parallelTtsEnabled.value = enabled
+        getApplication<Application>().getSharedPreferences("experimental_prefs", Application.MODE_PRIVATE)
+            .edit()
+            .putBoolean("parallel_tts", enabled)
+            .apply()
+    }
+
     fun setNudgeType(type: LlmService.NudgeType) {
         _nudgeType.value = type
         getApplication<Application>().getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
@@ -904,7 +958,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun endSession() {
         viewModelScope.launch {
-            memoryManager.summarizeAndSave(character.id, _messages.value, llm)
+            if (_longTermMemoryEnabled.value) {
+                memoryManager.summarizeAndSave(character.id, _messages.value, llm)
+            }
+            
+            // Critical shutdown to prevent memory corruption or zombie LLM processes
+            android.util.Log.i(TAG, "Session ended. Terminating process to ensure clean state.")
+            System.exit(0)
         }
     }
 

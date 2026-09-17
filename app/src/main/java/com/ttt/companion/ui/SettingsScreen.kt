@@ -39,6 +39,8 @@ fun SettingsScreen(viewModel: MainViewModel) {
     val useOfficialNudge by viewModel.useOfficialNudge.collectAsStateWithLifecycle()
     val selectedLlmId by viewModel.selectedLlmId.collectAsStateWithLifecycle()
     val cognitiveMemoryEnabled by viewModel.cognitiveMemoryEnabled.collectAsStateWithLifecycle()
+    val longTermMemoryEnabled by viewModel.longTermMemoryEnabled.collectAsStateWithLifecycle()
+    val parallelTtsEnabled by viewModel.parallelTtsEnabled.collectAsStateWithLifecycle()
 
     SettingsScreenContent(
         contextSize = contextSize,
@@ -52,6 +54,8 @@ fun SettingsScreen(viewModel: MainViewModel) {
         useOfficialNudge = useOfficialNudge,
         selectedLlmId = selectedLlmId,
         cognitiveMemoryEnabled = cognitiveMemoryEnabled,
+        longTermMemoryEnabled = longTermMemoryEnabled,
+        parallelTtsEnabled = parallelTtsEnabled,
         onBackClick = { viewModel.setScreen(MainViewModel.Screen.VRM) },
         onRestartLlmClick = { viewModel.restartLlm() },
         onRestartVrmClick = { viewModel.restartVrmEngine() },
@@ -66,7 +70,9 @@ fun SettingsScreen(viewModel: MainViewModel) {
         onNudgeTypeChange = { viewModel.setNudgeType(it) },
         onToggleOfficialNudge = { viewModel.setUseOfficialNudge(it) },
         onLlmModelChange = { viewModel.selectLlmModel(it) },
-        onToggleCognitiveMemory = { viewModel.setCognitiveMemoryEnabled(it) }
+        onToggleCognitiveMemory = { viewModel.setCognitiveMemoryEnabled(it) },
+        onToggleLongTermMemory = { viewModel.setLongTermMemoryEnabled(it) },
+        onToggleParallelTts = { viewModel.setParallelTtsEnabled(it) }
     )
 }
 
@@ -84,6 +90,8 @@ fun SettingsScreenContent(
     useOfficialNudge: Boolean,
     selectedLlmId: String,
     cognitiveMemoryEnabled: Boolean,
+    longTermMemoryEnabled: Boolean,
+    parallelTtsEnabled: Boolean,
     onBackClick: () -> Unit,
     onRestartLlmClick: () -> Unit,
     onRestartVrmClick: () -> Unit,
@@ -98,7 +106,9 @@ fun SettingsScreenContent(
     onNudgeTypeChange: (LlmService.NudgeType) -> Unit,
     onToggleOfficialNudge: (Boolean) -> Unit,
     onLlmModelChange: (String) -> Unit,
-    onToggleCognitiveMemory: (Boolean) -> Unit
+    onToggleCognitiveMemory: (Boolean) -> Unit,
+    onToggleLongTermMemory: (Boolean) -> Unit,
+    onToggleParallelTts: (Boolean) -> Unit
 ) {
     var localContextSize by remember(contextSize) { mutableIntStateOf(contextSize) }
 
@@ -279,11 +289,27 @@ fun SettingsScreenContent(
 
             SettingsSection(title = "Experimental") {
                 ToggleOption(
-                    title = "Cognitive Memory (Architect)",
-                    subtitle = "Use a secondary 0.5B model to summarize and organize long-term facts. (Requires extra RAM)",
+                    title = "Long-Term Memory",
+                    subtitle = "Enable the vector database system to save facts across sessions.",
+                    checked = longTermMemoryEnabled,
+                    onCheckedChange = onToggleLongTermMemory
+                )
+
+                ToggleOption(
+                    title = "Cognitive Architect",
+                    subtitle = "Use a secondary 0.5B model to summarize and organize facts. (Requires extra RAM)",
                     checked = cognitiveMemoryEnabled,
                     onCheckedChange = onToggleCognitiveMemory
                 )
+
+                if (com.ttt.companion.llm.DeviceUtils.isSnapdragonDevice()) {
+                    ToggleOption(
+                        title = "Parallel Speech (Snapdragon)",
+                        subtitle = "Bake audio in the background while the LLM is thinking. Much faster starts.",
+                        checked = parallelTtsEnabled,
+                        onCheckedChange = onToggleParallelTts
+                    )
+                }
 
                 val variant = ModelConfig.getLlmVariant(selectedLlmId)
                 

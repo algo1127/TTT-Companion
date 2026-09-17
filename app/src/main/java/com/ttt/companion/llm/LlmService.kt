@@ -86,8 +86,17 @@ class LlmService(private val context: Context) {
         forceReasoning: Boolean = false,
         reasoningThreshold: Int = 150,
         nudgeType: NudgeType = NudgeType.NO_THINK,
-        useOfficialNudge: Boolean = false
+        useOfficialNudge: Boolean = false,
+        onSentenceComplete: (suspend (String) -> Unit)? = null
     ): ChatResult {
+        // Long-Term Memory Retrieval
+        val memoryEnabled = context.getSharedPreferences("llm_prefs", Context.MODE_PRIVATE)
+            .getBoolean("long_term_memory_enabled", false)
+        
+        val relevantMemory = if (memoryEnabled) {
+            vectorMemory.findRelevant(characterId, history.lastOrNull { it.role == "user" }?.content ?: "")
+        } else ""
+
         // Engine Swapping Logic
         val currentIsCpu = engine is LlamaCppEngine
         if (forceCpu && !currentIsCpu) {
@@ -108,7 +117,7 @@ class LlmService(private val context: Context) {
         val dynamicTools = com.ttt.companion.tools.ToolDefinitions.getDynamicPrompt(detectedTools)
         
         // Vector Memory Retrieval
-        val relevantMemory = vectorMemory.findRelevant(characterId, lastUserMessage)
+        // Note: Already retrieved at the start of chat() and stored in relevantMemory
         
         val prompt = buildString {
             append("<|im_start|>system\n")
@@ -179,13 +188,27 @@ class LlmService(private val context: Context) {
             var tokenCount = 0
             var inThinkingBlock = currentThinkingState
             var watchdogTriggered = false
+            var currentSentence = StringBuilder()
 
             engine.events.collect { event ->
                 when (event) {
                     is LlmEngine.Event.Ongoing -> {
                         tokenCount++
                         result.append(event.word)
+                        currentSentence.append(event.word)
                         
+                        // Check for sentence completion (Pipelining)
+                        if (onSentenceComplete != null && !inThinkingBlock) {
+                            val word = event.word
+                            if (word.contains(".") || word.contains("!") || word.contains("?")) {
+                                val sentence = currentSentence.toString().trim()
+                                if (sentence.isNotEmpty()) {
+                                    onSentenceComplete(sentence)
+                                    currentSentence = StringBuilder()
+                                }
+                            }
+                        }
+
                         if (event.word.contains("<think>")) {
                             inThinkingBlock = true
                         }

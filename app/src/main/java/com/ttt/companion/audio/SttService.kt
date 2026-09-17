@@ -64,8 +64,9 @@ class SttService(private val context: Context) {
                     tokens     = tokens.absolutePath,
                     numThreads = 2,
                     debug      = false,
-                    provider   = "cpu"
-                )
+                    provider   = "cpu" // Stable CPU provider for Whisper
+                ),
+                decodingMethod = "greedy_search" // Correct string for sherpa-onnx
             )
 
             recognizer = OfflineRecognizer(config = config)
