@@ -187,6 +187,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     )
     val parallelTtsEnabled = _parallelTtsEnabled.asStateFlow()
 
+    private val _useSystemPromptCache = MutableStateFlow(
+        app.getSharedPreferences("experimental_prefs", Application.MODE_PRIVATE)
+            .getBoolean("use_system_prompt_cache", true)
+    )
+    val useSystemPromptCache = _useSystemPromptCache.asStateFlow()
+
     private val _nudgeType = MutableStateFlow(
         LlmService.NudgeType.valueOf(
             app.getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
@@ -501,7 +507,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     startLipSync()
                     try {
                         if (_parallelTtsEnabled.value) {
-                            ttsService.playQueue(pitch = _ttsPitch.value)
+                            ttsService.playQueue(
+                                pitch = _ttsPitch.value,
+                                expectedSentences = chatResult.sentenceCount
+                            )
                         } else {
                             val cleanResponse = response
                                 .replace(Regex("[\\\"']"), "") // Remove quotes
@@ -541,7 +550,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     else -> "Hello, how does my new voice sound to you?"
                 }
                 
-                val activeVoiceId = if (_useBlending.value && voiceId == 0) 0 else voiceId
+                // If blending is ON, always preview the blend (Slot 0) 
+                // regardless of which list item was clicked.
+                val activeVoiceId = if (_useBlending.value) 0 else voiceId
                 
                 ttsService.speak(phrase, voiceId = activeVoiceId, speed = _ttsSpeed.value, pitch = _ttsPitch.value)
             } finally {
@@ -877,6 +888,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         getApplication<Application>().getSharedPreferences("experimental_prefs", Application.MODE_PRIVATE)
             .edit()
             .putBoolean("parallel_tts", enabled)
+            .apply()
+    }
+
+    fun setUseSystemPromptCache(enabled: Boolean) {
+        _useSystemPromptCache.value = enabled
+        getApplication<Application>().getSharedPreferences("experimental_prefs", Application.MODE_PRIVATE)
+            .edit()
+            .putBoolean("use_system_prompt_cache", enabled)
             .apply()
     }
 

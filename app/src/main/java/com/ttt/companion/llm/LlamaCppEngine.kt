@@ -90,7 +90,8 @@ class LlamaCppEngine(contentResolver: ContentResolver) : LlmEngine {
     override suspend fun predict(
         prompt: String,
         tempOverride: Float?,
-        stopWords: List<String>
+        stopWords: List<String>,
+        useCache: Boolean
     ) {
         // llama.cpp simple wrapper might not support mid-stream stop/temp change easily
         // but we'll pass the logic through if the underlying library supports it.

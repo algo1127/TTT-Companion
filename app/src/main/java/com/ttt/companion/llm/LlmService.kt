@@ -72,7 +72,8 @@ class LlmService(private val context: Context) {
 
     data class ChatResult(
         val text: String,
-        val stats: com.ttt.companion.model.PerformanceStats? = null
+        val stats: com.ttt.companion.model.PerformanceStats? = null,
+        val sentenceCount: Int = 0
     )
 
     enum class NudgeType { NO_THINK, DONE }
@@ -120,6 +121,25 @@ class LlmService(private val context: Context) {
         // Note: Already retrieved at the start of chat() and stored in relevantMemory
         
         val prompt = buildString {
+            // 1. CHAT HISTORY (Moving up to stabilize core prompt cache)
+            val historySubset = history.takeLast(10)
+            historySubset.forEachIndexed { index, msg ->
+                val role = if (msg.role == "user") "user" else "assistant"
+                var cleanedContent = msg.content
+                    .replace(Regex("<think>.*?</think>", RegexOption.DOT_MATCHES_ALL), "")
+                    .trim()
+                
+                // If official nudge is enabled, append keyword to the LAST user message
+                if (useOfficialNudge && index == historySubset.size - 1 && msg.role == "user") {
+                    cleanedContent += if (forceReasoning) " /think" else " /no_think"
+                }
+
+                append("<|im_start|>$role\n")
+                append(cleanedContent)
+                append("\n<|im_end|>\n")
+            }
+
+            // 2. SYSTEM CORE
             append("<|im_start|>system\n")
             append(systemPrompt.trim())
 
@@ -139,25 +159,7 @@ class LlmService(private val context: Context) {
             
             append("\n<|im_end|>\n")
             
-            // CONVERSATION HISTORY (Cleaned of structural artifacts)
-            val historySubset = history.takeLast(10)
-            historySubset.forEachIndexed { index, msg ->
-                val role = if (msg.role == "user") "user" else "assistant"
-                var cleanedContent = msg.content
-                    .replace(Regex("<think>.*?</think>", RegexOption.DOT_MATCHES_ALL), "")
-                    .trim()
-                
-                // If official nudge is enabled, append keyword to the LAST user message
-                if (useOfficialNudge && index == historySubset.size - 1 && msg.role == "user") {
-                    cleanedContent += if (forceReasoning) " /think" else " /no_think"
-                }
-
-                append("<|im_start|>$role\n")
-                append(cleanedContent)
-                append("\n<|im_end|>\n")
-            }
-            
-            // STRUCTURAL STEERING (Hard-Locks)
+            // 3. GENERATION START
             append("<|im_start|>assistant\n")
             if (forceReasoning) {
                 // Let the model decide, or force it if it's a reasoning model
@@ -189,6 +191,7 @@ class LlmService(private val context: Context) {
             var inThinkingBlock = currentThinkingState
             var watchdogTriggered = false
             var currentSentence = StringBuilder()
+            var totalSentences = 0
 
             engine.events.collect { event ->
                 when (event) {
@@ -203,6 +206,10 @@ class LlmService(private val context: Context) {
                             if (word.contains(".") || word.contains("!") || word.contains("?")) {
                                 val sentence = currentSentence.toString().trim()
                                 if (sentence.isNotEmpty()) {
+                                    totalSentences++
+                                    // SEQUENTIAL: Call directly (since onSentenceComplete is suspend)
+                                    // to preserve order. The implementer (MainViewModel) must 
+                                    // handle backgrounding the actual synthesis.
                                     onSentenceComplete(sentence)
                                     currentSentence = StringBuilder()
                                 }
@@ -245,9 +252,9 @@ class LlmService(private val context: Context) {
                             .trim()
                         
                         if (cleaned.isEmpty() && finalResult.contains("</think>")) {
-                            finishedDeferred.complete(ChatResult("... (I'm a bit lost, could you say that again?)", stats))
+                            finishedDeferred.complete(ChatResult("... (I'm a bit lost, could you say that again?)", stats, 0))
                         } else {
-                            finishedDeferred.complete(ChatResult(cleaned, stats))
+                            finishedDeferred.complete(ChatResult(cleaned, stats, totalSentences))
                         }
                     }
                     is LlmEngine.Event.Error -> {
@@ -264,6 +271,9 @@ class LlmService(private val context: Context) {
             val activity = context as? android.app.Activity
             activity?.window?.setSustainedPerformanceMode(true)
             
+            val useCache = context.getSharedPreferences("experimental_prefs", Context.MODE_PRIVATE)
+                .getBoolean("use_system_prompt_cache", true)
+
             val stopWords = mutableListOf("<|im_end|>", "<|endoftext|>", "###")
             if (!forceReasoning) {
                 stopWords.add("<think>")
@@ -271,7 +281,8 @@ class LlmService(private val context: Context) {
             
             engine.predict(
                 prompt = prompt,
-                stopWords = stopWords
+                stopWords = stopWords,
+                useCache = useCache
             )
             
             val initialResult = finishedDeferred.await()

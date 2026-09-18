@@ -91,9 +91,10 @@ class GenieXEngine(private val context: Context) : LlmEngine {
     override suspend fun predict(
         prompt: String,
         tempOverride: Float?,
-        stopWords: List<String>
+        stopWords: List<String>,
+        useCache: Boolean
     ) {
-        Log.d("GenieXEngine", "Predicting with prompt length: ${prompt.length}")
+        Log.d("GenieXEngine", "Predicting with prompt length: ${prompt.length}, useCache: $useCache")
         if (prompt.length < 500) {
             Log.v("GenieXEngine", "Prompt content: $prompt")
         }

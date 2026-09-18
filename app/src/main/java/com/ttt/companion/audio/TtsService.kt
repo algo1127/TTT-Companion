@@ -9,8 +9,7 @@ import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.OfflineTtsConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsKokoroModelConfig
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.*
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream
 import java.io.File
@@ -26,9 +25,14 @@ class TtsService(private val context: Context) {
     private var currentTrack: AudioTrack? = null
     private var stopFlag = false
 
+    // Sequential Queuing to ensure order
+    private val textQueue = mutableListOf<String>()
     private val audioQueue = mutableListOf<FloatArray>()
+    private var isProcessingQueue = false
     private var isPlayingQueue = false
     private var queueSampleRate = 24000
+    private var currentVoiceId = 0
+    private var currentSpeed = 1.0f
 
     sealed class LoadState {
         data object Idle    : LoadState()
@@ -73,6 +77,8 @@ class TtsService(private val context: Context) {
 
             // Handle Voice Blending if requested
             var activeVoicesPath = voicesFile.absolutePath
+            Log.d(TAG, "Voices file size: ${voicesFile.length()} bytes")
+
             if (blend != null) {
                 try {
                     val customVoicesFile = File(modelDir, "voices_custom.bin")
@@ -120,13 +126,16 @@ class TtsService(private val context: Context) {
     }
 
     private fun createBlendedVoices(source: File, target: File, blend: BlendConfig) {
-        val originalBytes = source.readBytes().copyOf() // Copy to be safe
-        val speakerCount = 53
+        val originalBytes = source.readBytes()
+        // Kokoro v0.19 has 51 speakers (0 to 50).
+        val speakerCount = 51 
         val vectorSize = originalBytes.size / speakerCount 
         
+        Log.d(TAG, "Blending. File size: ${originalBytes.size}, Speakers: $speakerCount, Vector: $vectorSize bytes")
+
         val offsetA = blend.voiceASid * vectorSize
         val offsetB = blend.voiceBSid * vectorSize
-        val offsetTarget = blend.customSid * vectorSize // Usually 0
+        val offsetTarget = blend.customSid * vectorSize 
         
         if (offsetA + vectorSize > originalBytes.size || 
             offsetB + vectorSize > originalBytes.size ||
@@ -137,11 +146,10 @@ class TtsService(private val context: Context) {
         val ratioA = blend.ratio
         val ratioB = 1.0f - ratioA
 
-        // Perform vector interpolation in float space
+        val workingBytes = originalBytes.copyOf()
         val floatCount = vectorSize / 4
         for (i in 0 until floatCount) {
             val byteIdx = i * 4
-            
             val valA = java.nio.ByteBuffer.wrap(originalBytes, offsetA + byteIdx, 4)
                 .order(java.nio.ByteOrder.LITTLE_ENDIAN).float
             val valB = java.nio.ByteBuffer.wrap(originalBytes, offsetB + byteIdx, 4)
@@ -149,19 +157,17 @@ class TtsService(private val context: Context) {
             
             val mixed = (valA * ratioA) + (valB * ratioB)
             
-            java.nio.ByteBuffer.wrap(originalBytes, offsetTarget + byteIdx, 4)
+            java.nio.ByteBuffer.wrap(workingBytes, offsetTarget + byteIdx, 4)
                 .order(java.nio.ByteOrder.LITTLE_ENDIAN).putFloat(mixed)
         }
-
-        // Save the modified file (same size as original)
-        target.writeBytes(originalBytes)
+        target.writeBytes(workingBytes)
     }
 
     data class BlendConfig(
         val voiceASid: Int,
         val voiceBSid: Int,
         val ratio: Float,
-        val customSid: Int // Total original voices
+        val customSid: Int
     )
 
     private fun untar(tarBz2File: File, targetDir: File) {
@@ -210,42 +216,73 @@ class TtsService(private val context: Context) {
     }
 
     suspend fun enqueue(text: String, voiceId: Int = 0, speed: Float = 1.0f) = withContext(Dispatchers.IO) {
-        val engine = tts ?: return@withContext
-        try {
-            val audio = engine.generate(text = text, sid = voiceId, speed = speed)
-            synchronized(audioQueue) {
-                audioQueue.add(audio.samples)
-                queueSampleRate = audio.sampleRate
-            }
-            Log.d(TAG, "Enqueued sentence: \"$text\"")
-        } catch (e: Exception) {
-            Log.e(TAG, "Enqueue error", e)
+        synchronized(textQueue) {
+            textQueue.add(text)
+            currentVoiceId = voiceId
+            currentSpeed = speed
+        }
+        
+        if (!isProcessingQueue) {
+            startSynthesisWorker()
         }
     }
 
-    suspend fun playQueue(pitch: Float = 1.0f) = withContext(Dispatchers.IO) {
+    private fun startSynthesisWorker() {
+        if (isProcessingQueue) return
+        isProcessingQueue = true
+        
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                while (true) {
+                    val text = synchronized(textQueue) {
+                        if (textQueue.isEmpty()) null else textQueue.removeAt(0)
+                    } ?: break
+                    
+                    val engine = tts ?: continue
+                    Log.d(TAG, "Synthesizing: \"$text\"")
+                    val audio = engine.generate(text = text, sid = currentVoiceId, speed = currentSpeed)
+                    
+                    synchronized(audioQueue) {
+                        audioQueue.add(audio.samples)
+                        queueSampleRate = audio.sampleRate
+                    }
+                    Log.d(TAG, "Synthesis complete. Queue size: ${audioQueue.size}")
+                }
+            } finally {
+                isProcessingQueue = false
+            }
+        }
+    }
+
+    suspend fun playQueue(pitch: Float = 1.0f, expectedSentences: Int = 0) = withContext(Dispatchers.IO) {
         if (isPlayingQueue) return@withContext
         isPlayingQueue = true
         stopFlag = false
         
+        var playedCount = 0
+        val startWaitTime = System.currentTimeMillis()
+        
         try {
-            while (true) {
+            while (playedCount < expectedSentences || audioQueue.isNotEmpty()) {
                 val samples = synchronized(audioQueue) {
                     if (audioQueue.isEmpty()) null else audioQueue.removeAt(0)
-                } ?: break
+                }
                 
-                playPcm(samples, queueSampleRate, pitch = pitch)
-                if (stopFlag) break
+                if (samples != null) {
+                    playPcm(samples, queueSampleRate, pitch = pitch)
+                    playedCount++
+                } else {
+                    if (System.currentTimeMillis() - startWaitTime > 15000) {
+                        Log.w(TAG, "playQueue timed out")
+                        break 
+                    }
+                    if (stopFlag) break
+                    Thread.sleep(100)
+                }
             }
         } finally {
             isPlayingQueue = false
-            synchronized(audioQueue) { audioQueue.clear() }
-        }
-    }
-
-    fun clearQueue() {
-        synchronized(audioQueue) {
-            audioQueue.clear()
+            synchronized(textQueue) { textQueue.clear() }
         }
     }
 
@@ -281,7 +318,6 @@ class TtsService(private val context: Context) {
         currentTrack = track
         track.play()
         
-        // Write in chunks to allow for quicker interruption
         val chunkSize = 4096
         var written = 0
         while (written < samples.size && !stopFlag) {
@@ -290,7 +326,6 @@ class TtsService(private val context: Context) {
             written += toWrite
         }
         
-        // Wait for the track to finish playing remaining buffer
         val frames = samples.size
         while (track.playbackHeadPosition < frames && !stopFlag) {
             try {
@@ -302,7 +337,6 @@ class TtsService(private val context: Context) {
         track.stop()
         track.release()
         currentTrack = null
-        Log.d(TAG, "TTS playback ${if (stopFlag) "interrupted" else "complete"}")
     }
 
     fun stop() {
@@ -319,6 +353,12 @@ class TtsService(private val context: Context) {
             Log.w(TAG, "Error stopping AudioTrack: ${e.message}")
         }
         currentTrack = null
+    }
+
+    fun clearQueue() {
+        stopFlag = true
+        synchronized(textQueue) { textQueue.clear() }
+        synchronized(audioQueue) { audioQueue.clear() }
     }
 
     fun release() {

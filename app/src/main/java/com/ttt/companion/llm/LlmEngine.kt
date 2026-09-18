@@ -27,7 +27,8 @@ interface LlmEngine {
     suspend fun predict(
         prompt: String,
         tempOverride: Float? = null,
-        stopWords: List<String> = emptyList()
+        stopWords: List<String> = emptyList(),
+        useCache: Boolean = true
     )
     fun unload()
     suspend fun stop()

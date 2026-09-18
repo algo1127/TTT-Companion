@@ -41,6 +41,7 @@ fun SettingsScreen(viewModel: MainViewModel) {
     val cognitiveMemoryEnabled by viewModel.cognitiveMemoryEnabled.collectAsStateWithLifecycle()
     val longTermMemoryEnabled by viewModel.longTermMemoryEnabled.collectAsStateWithLifecycle()
     val parallelTtsEnabled by viewModel.parallelTtsEnabled.collectAsStateWithLifecycle()
+    val useSystemPromptCache by viewModel.useSystemPromptCache.collectAsStateWithLifecycle()
 
     SettingsScreenContent(
         contextSize = contextSize,
@@ -56,6 +57,7 @@ fun SettingsScreen(viewModel: MainViewModel) {
         cognitiveMemoryEnabled = cognitiveMemoryEnabled,
         longTermMemoryEnabled = longTermMemoryEnabled,
         parallelTtsEnabled = parallelTtsEnabled,
+        useSystemPromptCache = useSystemPromptCache,
         onBackClick = { viewModel.setScreen(MainViewModel.Screen.VRM) },
         onRestartLlmClick = { viewModel.restartLlm() },
         onRestartVrmClick = { viewModel.restartVrmEngine() },
@@ -72,7 +74,8 @@ fun SettingsScreen(viewModel: MainViewModel) {
         onLlmModelChange = { viewModel.selectLlmModel(it) },
         onToggleCognitiveMemory = { viewModel.setCognitiveMemoryEnabled(it) },
         onToggleLongTermMemory = { viewModel.setLongTermMemoryEnabled(it) },
-        onToggleParallelTts = { viewModel.setParallelTtsEnabled(it) }
+        onToggleParallelTts = { viewModel.setParallelTtsEnabled(it) },
+        onToggleSystemPromptCache = { viewModel.setUseSystemPromptCache(it) }
     )
 }
 
@@ -92,6 +95,7 @@ fun SettingsScreenContent(
     cognitiveMemoryEnabled: Boolean,
     longTermMemoryEnabled: Boolean,
     parallelTtsEnabled: Boolean,
+    useSystemPromptCache: Boolean,
     onBackClick: () -> Unit,
     onRestartLlmClick: () -> Unit,
     onRestartVrmClick: () -> Unit,
@@ -108,7 +112,8 @@ fun SettingsScreenContent(
     onLlmModelChange: (String) -> Unit,
     onToggleCognitiveMemory: (Boolean) -> Unit,
     onToggleLongTermMemory: (Boolean) -> Unit,
-    onToggleParallelTts: (Boolean) -> Unit
+    onToggleParallelTts: (Boolean) -> Unit,
+    onToggleSystemPromptCache: (Boolean) -> Unit
 ) {
     var localContextSize by remember(contextSize) { mutableIntStateOf(contextSize) }
 
@@ -310,6 +315,13 @@ fun SettingsScreenContent(
                         onCheckedChange = onToggleParallelTts
                     )
                 }
+
+                ToggleOption(
+                    title = "System Prompt Cache",
+                    subtitle = "Reuse the KV-cache for faster response times. Disable to investigate repetition issues.",
+                    checked = useSystemPromptCache,
+                    onCheckedChange = onToggleSystemPromptCache
+                )
 
                 val variant = ModelConfig.getLlmVariant(selectedLlmId)
                 

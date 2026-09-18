@@ -14,14 +14,11 @@ class MemoryManager(context: Context) {
 
     private val prefs = context.getSharedPreferences("llm_prefs", Context.MODE_PRIVATE)
 
-    /**
-     * Build the "[Persistent Memory]" block to inject into the system prompt.
-     * Returns empty string if there's no memory yet (first ever session).
-     */
     suspend fun buildMemoryBlock(characterId: String): String {
-        // Use the vector manager for semantic retrieval
-        // This makes the response context-aware rather than just recent-aware
-        return "" // Placeholder for now, LlmService calls findRelevant directly
+        // We use the vector manager for semantic retrieval now.
+        // This method is kept for legacy compatibility but currently 
+        // the LlmService calls findRelevant directly.
+        return "" 
     }
 
     /**
