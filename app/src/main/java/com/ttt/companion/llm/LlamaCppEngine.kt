@@ -1,6 +1,8 @@
 package com.ttt.companion.llm
 
 import android.content.ContentResolver
+import android.net.Uri
+import android.util.Log
 import com.ttt.companion.model.CharacterProfile
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -16,7 +18,7 @@ import kotlinx.coroutines.withContext
 import org.nehuatl.llamacpp.LlamaHelper
 import java.io.File
 
-class LlamaCppEngine(contentResolver: ContentResolver) : LlmEngine {
+class LlamaCppEngine(private val contentResolver: ContentResolver, private val downloader: ModelDownloader) : LlmEngine {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     
     private val _rawEvents = MutableSharedFlow<LlamaHelper.LLMEvent>(
@@ -58,6 +60,16 @@ class LlamaCppEngine(contentResolver: ContentResolver) : LlmEngine {
             if (!modelFile.exists()) return LlmService.LoadState.Error("Model file not found")
             
             val modelUri = "file://${modelFile.absolutePath}"
+            
+            // Resolve mmproj path if available in ModelConfig
+            val variant = ModelConfig.LLM_VARIANTS.find { it.subDir in profile.modelPath }
+            val mmprojFile = if (variant != null) downloader.getMmprojFile(variant) else null
+            val mmprojPath = if (mmprojFile != null && mmprojFile.exists()) "file://${mmprojFile.absolutePath}" else null
+            
+            if (mmprojPath != null) {
+                Log.i("LlamaCppEngine", "Loading multimodal model with mmproj: $mmprojPath")
+            }
+
             val deferred = CompletableDeferred<LlmService.LoadState>()
 
             val job = scope.launch {
@@ -76,7 +88,11 @@ class LlamaCppEngine(contentResolver: ContentResolver) : LlmEngine {
             }
 
             withContext(Dispatchers.IO) {
-                helper.load(path = modelUri, contextLength = contextSize) {}
+                helper.load(
+                    path = modelUri, 
+                    contextLength = contextSize,
+                    mmprojPath = mmprojPath
+                ) {}
             }
 
             val result = deferred.await()
@@ -91,11 +107,76 @@ class LlamaCppEngine(contentResolver: ContentResolver) : LlmEngine {
         prompt: String,
         tempOverride: Float?,
         stopWords: List<String>,
-        useCache: Boolean
+        useCache: Boolean,
+        imagePath: String?,
+        maxImageDim: Int
     ) {
-        // llama.cpp simple wrapper might not support mid-stream stop/temp change easily
-        // but we'll pass the logic through if the underlying library supports it.
-        helper.predict(prompt = prompt)
+        // Resolve content URI to actual file and ensure it has a proper file:// scheme
+        // for the ContentResolver inside LlamaHelper.
+        val resolvedPath = if (imagePath?.startsWith("content://") == true) {
+            copyUriToTempFile(imagePath, maxImageDim)
+        } else imagePath
+
+        val finalUri = if (resolvedPath != null && !resolvedPath.contains("://")) {
+            "file://$resolvedPath"
+        } else resolvedPath
+
+        helper.predict(prompt = prompt, imagePath = finalUri)
+    }
+
+    private fun copyUriToTempFile(uriStr: String, maxDim: Int): String? {
+        return try {
+            val uri = Uri.parse(uriStr)
+
+            // 1. Determine original dimensions to prevent OOM
+            val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            contentResolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, options) }
+
+            // 2. Calculate optimal sample size (power of 2)
+            var inSampleSize = 1
+            if (options.outHeight > maxDim || options.outWidth > maxDim) {
+                val halfHeight = options.outHeight / 2
+                val halfWidth = options.outWidth / 2
+                while (halfHeight / inSampleSize >= maxDim && halfWidth / inSampleSize >= maxDim) {
+                    inSampleSize *= 2
+                }
+            }
+
+            // 3. Decode the sampled bitmap
+            val decodeOptions = android.graphics.BitmapFactory.Options().apply { this.inSampleSize = inSampleSize }
+            val bitmap = contentResolver.openInputStream(uri)?.use { 
+                android.graphics.BitmapFactory.decodeStream(it, null, decodeOptions) 
+            } ?: return null
+
+            // 4. Exact scale to fit within maxDim while preserving aspect ratio
+            val currentMax = Math.max(bitmap.width, bitmap.height)
+            val finalBitmap = if (currentMax > maxDim) {
+                val scale = maxDim.toFloat() / currentMax
+                android.graphics.Bitmap.createScaledBitmap(
+                    bitmap, 
+                    (bitmap.width * scale).toInt(), 
+                    (bitmap.height * scale).toInt(), 
+                    true
+                )
+            } else bitmap
+
+            // 5. Persist to cache as JPEG
+            val tempFile = File(downloader.getModelFile(ModelConfig.DEFAULT_LLM).parentFile?.parentFile, "cache/vision_temp.jpg")
+            tempFile.parentFile?.mkdirs()
+            tempFile.outputStream().use { output ->
+                finalBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, output)
+            }
+            
+            // Cleanup
+            if (finalBitmap != bitmap) finalBitmap.recycle()
+            bitmap.recycle()
+            
+            Log.d("LlamaCppEngine", "Resized image saved to: ${tempFile.absolutePath} (${tempFile.length()} bytes)")
+            tempFile.absolutePath
+        } catch (e: Exception) {
+            Log.e("LlamaCppEngine", "Failed to resize/copy image URI", e)
+            null
+        }
     }
 
     override fun unload() {

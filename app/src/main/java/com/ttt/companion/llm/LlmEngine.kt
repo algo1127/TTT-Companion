@@ -28,7 +28,9 @@ interface LlmEngine {
         prompt: String,
         tempOverride: Float? = null,
         stopWords: List<String> = emptyList(),
-        useCache: Boolean = true
+        useCache: Boolean = true,
+        imagePath: String? = null,
+        maxImageDim: Int = 512
     )
     fun unload()
     suspend fun stop()

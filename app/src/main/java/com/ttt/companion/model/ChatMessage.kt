@@ -3,7 +3,8 @@ package com.ttt.companion.model
 data class ChatMessage(
     val role: String,    // "user" | "assistant" | "system"
     val content: String,
-    val performanceStats: PerformanceStats? = null
+    val performanceStats: PerformanceStats? = null,
+    val hasImage: Boolean = false
 )
 
 data class PerformanceStats(

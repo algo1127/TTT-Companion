@@ -54,6 +54,8 @@ fun VrmScreen(viewModel: MainViewModel) {
     val llmStatus    by viewModel.llmLoadingStatus.collectAsStateWithLifecycle()
     val vrmStatus    by viewModel.vrmLoadingStatus.collectAsStateWithLifecycle()
     val showStats    by viewModel.showPerformanceStats.collectAsStateWithLifecycle()
+    val selectedImage by viewModel.selectedImagePath.collectAsStateWithLifecycle()
+    val isMultimodal by viewModel.isMultimodal.collectAsStateWithLifecycle()
 
     val cameraData   = remember { viewModel.loadCameraPosition() }
 
@@ -77,6 +79,8 @@ fun VrmScreen(viewModel: MainViewModel) {
         computeUnit = viewModel.computeUnit,
         showStats = showStats,
         cameraData = cameraData,
+        selectedImage = selectedImage,
+        isMultimodal = isMultimodal,
         onSendMessage = { viewModel.sendMessage(it) },
         onToggleMic = { viewModel.toggleMic() },
         onToggleCameraLock = { viewModel.toggleCameraLock() },
@@ -85,7 +89,8 @@ fun VrmScreen(viewModel: MainViewModel) {
         onCameraMoved = { rx, ry, zoom -> viewModel.saveCameraPosition(rx, ry, zoom) },
         onSetScreen = { viewModel.setScreen(it) },
         onStartVrm = { viewModel.startVrm() },
-        onSkipVrm = { viewModel.skipVrm() }
+        onSkipVrm = { viewModel.skipVrm() },
+        onPickImage = { viewModel.setSelectedImage(it) }
     )
 }
 
@@ -111,6 +116,8 @@ fun VrmScreenContent(
     computeUnit: String,
     showStats: Boolean,
     cameraData: FloatArray?,
+    selectedImage: String?,
+    isMultimodal: Boolean,
     onSendMessage: (String) -> Unit,
     onToggleMic: () -> Unit,
     onToggleCameraLock: () -> Unit,
@@ -119,7 +126,8 @@ fun VrmScreenContent(
     onCameraMoved: (Float, Float, Float) -> Unit,
     onSetScreen: (MainViewModel.Screen) -> Unit,
     onStartVrm: () -> Unit,
-    onSkipVrm: () -> Unit
+    onSkipVrm: () -> Unit,
+    onPickImage: (String?) -> Unit
 ) {
     // UI State
     var expanded     by remember { mutableStateOf(false) }
@@ -294,6 +302,25 @@ fun VrmScreenContent(
                     Box(modifier = Modifier.width(40.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = if (expanded) 0.5f else 0.3f)))
                 }
 
+                // Image Preview if selected
+                if (selectedImage != null && expanded) {
+                    Box(
+                        modifier = Modifier
+                            .padding(16.dp)
+                            .size(60.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = 0.1f))
+                    ) {
+                        Icon(Icons.Default.Image, null, tint = Color.White, modifier = Modifier.align(Alignment.Center))
+                        IconButton(
+                            onClick = { onPickImage(null) },
+                            modifier = Modifier.align(Alignment.TopEnd).size(20.dp).background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                        ) {
+                            Icon(Icons.Default.Close, null, tint = Color.White, modifier = Modifier.size(14.dp))
+                        }
+                    }
+                }
+
                 AnimatedVisibility(visible = expanded, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                     LazyColumn(
                         state = listState,
@@ -312,6 +339,14 @@ fun VrmScreenContent(
                                     modifier = Modifier.fillMaxWidth(), 
                                     textAlign = if (isUser) TextAlign.End else TextAlign.Start
                                 )
+                                if (isUser && msg.hasImage) {
+                                    Icon(
+                                        Icons.Default.Image, 
+                                        null, 
+                                        tint = Color(0xFF6699FF), 
+                                        modifier = Modifier.size(16.dp).align(Alignment.End).padding(top = 2.dp, bottom = 2.dp)
+                                    )
+                                }
                                 
                                 if (!isUser && showStats && msg.performanceStats != null) {
                                     var showDetail by remember { mutableStateOf(false) }
@@ -368,6 +403,25 @@ fun VrmScreenContent(
                     val isBusy = isLoading || isSpeaking || audioState != MainViewModel.AudioState.Idle
                     val ready = modelState == LlmService.LoadState.Ready
                     
+                    val imageLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+                    ) { uri ->
+                        uri?.let { onPickImage(it.toString()) }
+                    }
+
+                    if (isMultimodal) {
+                        IconButton(
+                            onClick = { imageLauncher.launch("image/*") },
+                            enabled = ready && !isBusy
+                        ) {
+                            Icon(
+                                Icons.Default.AddPhotoAlternate,
+                                "Attach Image",
+                                tint = if (selectedImage != null) Color(0xFF6699FF) else Color.White
+                            )
+                        }
+                    }
+
                     OutlinedTextField(
                         value = inputText, onValueChange = { inputText = it; if (!expanded) expanded = true },
                         modifier = Modifier.weight(1f), placeholder = { Text("Say something...", color = Color(0xFF666666)) },
@@ -376,15 +430,15 @@ fun VrmScreenContent(
                     )
                     IconButton(onClick = {
                         if (isBusy) onToggleMic()
-                        else if (inputText.isNotBlank()) { onSendMessage(inputText); inputText = "" }
+                        else if (inputText.isNotBlank() || selectedImage != null) { onSendMessage(inputText); inputText = "" }
                         else onToggleMic()
                     }, enabled = ready) {
                         val icon = when {
                             isBusy -> Icons.Default.Stop
-                            inputText.isNotBlank() -> Icons.AutoMirrored.Filled.Send
+                            inputText.isNotBlank() || selectedImage != null -> Icons.AutoMirrored.Filled.Send
                             else -> Icons.Default.Mic
                         }
-                        Icon(imageVector = icon, contentDescription = null, tint = if (ready) (if (isBusy) Color(0xFFFF6666) else if (inputText.isNotBlank()) Color(0xFF6699FF) else Color.White) else Color(0xFF333333))
+                        Icon(imageVector = icon, contentDescription = null, tint = if (ready) (if (isBusy) Color(0xFFFF6666) else if (inputText.isNotBlank() || selectedImage != null) Color(0xFF6699FF) else Color.White) else Color(0xFF333333))
                     }
                     IconButton(onClick = onToggleCameraLock, enabled = ready && !isBusy) {
                         Icon(imageVector = if (isCameraLocked) Icons.Default.Lock else Icons.Default.LockOpen, contentDescription = null, tint = if (isCameraLocked) Color(0xFF6699FF) else Color(0xFFFF4444))

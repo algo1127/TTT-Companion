@@ -1,13 +1,14 @@
 package com.ttt.companion.llm
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import com.geniex.sdk.GenieXSdk
 import com.geniex.sdk.LlmWrapper
 import com.geniex.sdk.bean.GenerationConfig
 import com.geniex.sdk.bean.LlmCreateInput
 import com.geniex.sdk.bean.LlmStreamResult
-import com.geniex.sdk.bean.ModelConfig
+import com.geniex.sdk.bean.ModelConfig as GenieModelConfig
 import com.geniex.sdk.bean.SamplerConfig
 import com.ttt.companion.model.CharacterProfile
 import kotlinx.coroutines.CompletableDeferred
@@ -55,7 +56,7 @@ class GenieXEngine(private val context: Context) : LlmEngine {
 
             currentComputeUnit = "GPU"
 
-            val modelConfig = ModelConfig(
+            val modelConfig = GenieModelConfig(
                 nCtx = contextSize,
                 nGpuLayers = -1,
                 nBatch = 512,
@@ -92,13 +93,16 @@ class GenieXEngine(private val context: Context) : LlmEngine {
         prompt: String,
         tempOverride: Float?,
         stopWords: List<String>,
-        useCache: Boolean
+        useCache: Boolean,
+        imagePath: String?,
+        maxImageDim: Int
     ) {
-        Log.d("GenieXEngine", "Predicting with prompt length: ${prompt.length}, useCache: $useCache")
-        if (prompt.length < 500) {
-            Log.v("GenieXEngine", "Prompt content: $prompt")
-        }
+        Log.d("GenieXEngine", "Predicting with prompt length: ${prompt.length}, useCache: $useCache, image: ${imagePath != null}")
         
+        val finalImagePath = if (imagePath?.startsWith("content://") == true) {
+            copyUriToTempFile(imagePath)
+        } else imagePath
+
         val wrapper = llmWrapper ?: throw Exception("GenieX not initialized")
         val profile = currentProfile ?: throw Exception("Profile not set")
 
@@ -113,7 +117,9 @@ class GenieXEngine(private val context: Context) : LlmEngine {
             maxTokens = profile.maxTokens,
             samplerConfig = samplerConfig,
             stopWords = if (stopWords.isNotEmpty()) stopWords.toTypedArray() else null,
-            stopCount = stopWords.size
+            stopCount = stopWords.size,
+            imagePaths = if (finalImagePath != null) arrayOf(finalImagePath) else null,
+            imageCount = if (finalImagePath != null) 1 else 0
         )
 
         scope.launch {
@@ -122,7 +128,6 @@ class GenieXEngine(private val context: Context) : LlmEngine {
                 wrapper.generateStreamFlow(prompt, genConfig).collect { result ->
                     when (result) {
                         is LlmStreamResult.Token -> {
-                            // Log.d("GenieXEngine", "Token: ${result.text}")
                             _events.emit(LlmEngine.Event.Ongoing(result.text))
                         }
                         is LlmStreamResult.Completed -> {
@@ -143,6 +148,21 @@ class GenieXEngine(private val context: Context) : LlmEngine {
             } catch (e: Exception) {
                 _events.emit(LlmEngine.Event.Error(e.message ?: "Prediction error"))
             }
+        }
+    }
+
+    private fun copyUriToTempFile(uriStr: String): String? {
+        return try {
+            val uri = Uri.parse(uriStr)
+            val inputStream = context.contentResolver.openInputStream(uri) ?: return null
+            val tempFile = File(context.cacheDir, "vision_temp.jpg")
+            tempFile.outputStream().use { output ->
+                inputStream.use { input -> input.copyTo(output) }
+            }
+            tempFile.absolutePath
+        } catch (e: Exception) {
+            Log.e("GenieXEngine", "Failed to copy image URI to temp file", e)
+            null
         }
     }
 

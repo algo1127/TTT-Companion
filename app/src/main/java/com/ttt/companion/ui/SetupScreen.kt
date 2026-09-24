@@ -241,10 +241,21 @@ private fun LlmModelCardSmall(variant: ModelConfig.ModelVariant, isSelected: Boo
                 Text(variant.displayName, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
             }
             Spacer(Modifier.height(4.dp))
-            if (!variant.isRecommended) {
-                Text("NOT RECOMMENDED", color = Color.Red, fontSize = 8.sp, fontWeight = FontWeight.Bold)
-            } else if (variant.isReasoning) {
-                Text("EXPERIMENTAL", color = Color(0xFF6699FF), fontSize = 8.sp, fontWeight = FontWeight.Bold)
+            if (variant.isRecommended) {
+                Surface(color = Color.Green.copy(alpha = 0.2f), shape = RoundedCornerShape(4.dp)) {
+                    Text("RECOMMENDED", color = Color.Green, fontSize = 8.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
+                }
+            } else if (!variant.isSpecialist && (variant.sizeLabel.contains("7B") || variant.isReasoning)) {
+                Surface(color = Color.Red.copy(alpha = 0.2f), shape = RoundedCornerShape(4.dp)) {
+                    Text("NOT RECOMMENDED", color = Color.Red, fontSize = 8.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
+                }
+            }
+
+            if (variant.isReasoning) {
+                Spacer(Modifier.height(4.dp))
+                Surface(color = Color(0xFF6699FF).copy(alpha = 0.2f), shape = RoundedCornerShape(4.dp)) {
+                    Text("EXPERIMENTAL", color = Color(0xFF6699FF), fontSize = 8.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
+                }
             }
             Spacer(Modifier.height(4.dp))
             Text(variant.description, color = Color.Gray, fontSize = 10.sp, minLines = 2, maxLines = 2)

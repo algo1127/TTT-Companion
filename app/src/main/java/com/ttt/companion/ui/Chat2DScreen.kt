@@ -45,6 +45,8 @@ fun Chat2DScreen(viewModel: MainViewModel) {
     val audioState   by viewModel.audioState.collectAsStateWithLifecycle()
     val llmStatus    by viewModel.llmLoadingStatus.collectAsStateWithLifecycle()
     val showStats    by viewModel.showPerformanceStats.collectAsStateWithLifecycle()
+    val selectedImage by viewModel.selectedImagePath.collectAsStateWithLifecycle()
+    val isMultimodal by viewModel.isMultimodal.collectAsStateWithLifecycle()
 
     Chat2DScreenContent(
         messages = messages,
@@ -58,9 +60,12 @@ fun Chat2DScreen(viewModel: MainViewModel) {
         engineName = viewModel.engineName,
         computeUnit = viewModel.computeUnit,
         showStats = showStats,
+        selectedImage = selectedImage,
+        isMultimodal = isMultimodal,
         onSendMessage = { viewModel.sendMessage(it) },
         onToggleMic = { viewModel.toggleMic() },
-        onSetScreen = { viewModel.setScreen(it) }
+        onSetScreen = { viewModel.setScreen(it) },
+        onPickImage = { viewModel.setSelectedImage(it) }
     )
 }
 
@@ -78,9 +83,12 @@ fun Chat2DScreenContent(
     engineName: String,
     computeUnit: String,
     showStats: Boolean,
+    selectedImage: String?,
+    isMultimodal: Boolean,
     onSendMessage: (String) -> Unit,
     onToggleMic: () -> Unit,
-    onSetScreen: (MainViewModel.Screen) -> Unit
+    onSetScreen: (MainViewModel.Screen) -> Unit,
+    onPickImage: (String?) -> Unit
 ) {
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -271,59 +279,101 @@ fun Chat2DScreenContent(
                         color = PANEL_BG,
                         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .padding(horizontal = 16.dp, vertical = 12.dp)
-                                .navigationBarsPadding(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            val isBusy = isLoading || isSpeaking || audioState != MainViewModel.AudioState.Idle
-                            val ready = modelState == LlmService.LoadState.Ready
-                            
-                            OutlinedTextField(
-                                value = inputText,
-                                onValueChange = { inputText = it },
-                                modifier = Modifier.weight(1f),
-                                placeholder = { Text("Type a message...", color = Color.Gray) },
-                                enabled = ready && !isBusy,
-                                singleLine = true,
-                                shape = RoundedCornerShape(24.dp),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = Color(0xFF6699FF),
-                                    unfocusedBorderColor = Color(0xFF333344),
-                                    focusedTextColor = Color.White,
-                                    unfocusedTextColor = Color.White,
-                                    cursorColor = Color(0xFF6699FF)
-                                )
-                            )
-                            
-                            IconButton(
-                                onClick = {
-                                    if (isBusy) onToggleMic()
-                                    else if (inputText.isNotBlank()) { onSendMessage(inputText); inputText = "" }
-                                    else onToggleMic()
-                                },
-                                enabled = ready,
+                        Column {
+                            // Image Preview if selected
+                            if (selectedImage != null) {
+                                Box(
+                                    modifier = Modifier
+                                        .padding(16.dp)
+                                        .size(80.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Color.White.copy(alpha = 0.1f))
+                                ) {
+                                    // In a real app we'd use AsyncImage/Coil here.
+                                    // For now just show a placeholder icon and path
+                                    Icon(Icons.Default.Image, null, tint = Color.White, modifier = Modifier.align(Alignment.Center))
+                                    IconButton(
+                                        onClick = { onPickImage(null) },
+                                        modifier = Modifier.align(Alignment.TopEnd).size(24.dp).background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                                    ) {
+                                        Icon(Icons.Default.Close, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                            }
+
+                            Row(
                                 modifier = Modifier
-                                    .size(48.dp)
-                                    .background(
-                                        if (isBusy) Color(0xFFFF6666).copy(alpha = 0.2f)
-                                        else Color(0xFF6699FF).copy(alpha = 0.1f),
-                                        RoundedCornerShape(24.dp)
-                                    )
+                                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                                    .navigationBarsPadding(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                val icon = when {
-                                    isBusy -> Icons.Default.Stop
-                                    inputText.isNotBlank() -> Icons.AutoMirrored.Filled.Send
-                                    else -> Icons.Default.Mic
+                                val isBusy = isLoading || isSpeaking || audioState != MainViewModel.AudioState.Idle
+                                val ready = modelState == LlmService.LoadState.Ready
+                                
+                                val imageLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                                    contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+                                ) { uri ->
+                                    uri?.let { onPickImage(it.toString()) }
                                 }
-                                val tint = when {
-                                    isBusy -> Color(0xFFFF6666)
-                                    inputText.isNotBlank() -> Color(0xFF6699FF)
-                                    else -> Color.White
+
+                                if (isMultimodal) {
+                                    IconButton(
+                                        onClick = { imageLauncher.launch("image/*") },
+                                        enabled = ready && !isBusy
+                                    ) {
+                                        Icon(
+                                            Icons.Default.AddPhotoAlternate,
+                                            "Attach Image",
+                                            tint = if (selectedImage != null) Color(0xFF6699FF) else Color.White
+                                        )
+                                    }
                                 }
-                                Icon(imageVector = icon, contentDescription = null, tint = tint)
+
+                                OutlinedTextField(
+                                    value = inputText,
+                                    onValueChange = { inputText = it },
+                                    modifier = Modifier.weight(1f),
+                                    placeholder = { Text("Type a message...", color = Color.Gray) },
+                                    enabled = ready && !isBusy,
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(24.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = Color(0xFF6699FF),
+                                        unfocusedBorderColor = Color(0xFF333344),
+                                        focusedTextColor = Color.White,
+                                        unfocusedTextColor = Color.White,
+                                        cursorColor = Color(0xFF6699FF)
+                                    )
+                                )
+                                
+                                IconButton(
+                                    onClick = {
+                                        if (isBusy) onToggleMic()
+                                        else if (inputText.isNotBlank() || selectedImage != null) { onSendMessage(inputText); inputText = "" }
+                                        else onToggleMic()
+                                    },
+                                    enabled = ready,
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .background(
+                                            if (isBusy) Color(0xFFFF6666).copy(alpha = 0.2f)
+                                            else Color(0xFF6699FF).copy(alpha = 0.1f),
+                                            RoundedCornerShape(24.dp)
+                                        )
+                                ) {
+                                    val icon = when {
+                                        isBusy -> Icons.Default.Stop
+                                        inputText.isNotBlank() || selectedImage != null -> Icons.AutoMirrored.Filled.Send
+                                        else -> Icons.Default.Mic
+                                    }
+                                    val tint = when {
+                                        isBusy -> Color(0xFFFF6666)
+                                        inputText.isNotBlank() || selectedImage != null -> Color(0xFF6699FF)
+                                        else -> Color.White
+                                    }
+                                    Icon(imageVector = icon, contentDescription = null, tint = tint)
+                                }
                             }
                         }
                     }
@@ -368,12 +418,21 @@ fun ChatBubble(
             ),
             border = if (isUser) BorderStroke(1.dp, Color(0xFF6699FF).copy(alpha = 0.3f)) else null
         ) {
-            Text(
-                text = msg.content,
-                color = Color.White,
-                fontSize = 14.sp,
-                modifier = Modifier.padding(12.dp)
-            )
+            Column(modifier = Modifier.padding(12.dp)) {
+                if (isUser && msg.hasImage) {
+                    Icon(
+                        Icons.Default.Image, 
+                        null, 
+                        tint = Color(0xFF6699FF), 
+                        modifier = Modifier.size(16.dp).padding(bottom = 4.dp).align(Alignment.End)
+                    )
+                }
+                Text(
+                    text = msg.content,
+                    color = Color.White,
+                    fontSize = 14.sp
+                )
+            }
         }
 
         if (!isUser && showStats && msg.performanceStats != null) {

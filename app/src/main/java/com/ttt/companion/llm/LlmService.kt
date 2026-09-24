@@ -35,7 +35,7 @@ class LlmService(private val context: Context) {
             GenieXEngine(context)
         } else {
             Log.i("LlmService", "Initializing Standard Llama.cpp Engine (Forced CPU: $forceCpu)")
-            LlamaCppEngine(context.contentResolver)
+            LlamaCppEngine(context.contentResolver, ModelDownloader(context))
         }
     }
 
@@ -88,7 +88,9 @@ class LlmService(private val context: Context) {
         reasoningThreshold: Int = 150,
         nudgeType: NudgeType = NudgeType.NO_THINK,
         useOfficialNudge: Boolean = false,
-        onSentenceComplete: (suspend (String) -> Unit)? = null
+        onSentenceComplete: (suspend (String) -> Unit)? = null,
+        imagePath: String? = null,
+        maxImageDim: Int = 512
     ): ChatResult {
         // Long-Term Memory Retrieval
         val memoryEnabled = context.getSharedPreferences("llm_prefs", Context.MODE_PRIVATE)
@@ -100,12 +102,17 @@ class LlmService(private val context: Context) {
 
         // Engine Swapping Logic
         val currentIsCpu = engine is LlamaCppEngine
-        if (forceCpu && !currentIsCpu) {
-            Log.i("LlmService", "Swapping to CPU engine for background task...")
+        // FORCE CPU for Vision: GenieX SDK doesn't natively expose mmproj yet,
+        // so we fall back to Llama.cpp (CPU) if the current turn OR history has an image.
+        val hasImageInHistory = history.any { it.hasImage }
+        val shouldForceCpu = forceCpu || imagePath != null || hasImageInHistory
+
+        if (shouldForceCpu && !currentIsCpu) {
+            Log.i("LlmService", "Swapping to CPU engine for multimodal/background task...")
             engine.unload()
             engine = getEngine(forceCpu = true)
             lastProfile?.let { engine.loadModel(it, lastContextSize) }
-        } else if (!forceCpu && currentIsCpu && DeviceUtils.isSnapdragonDevice() && DeviceUtils.isGenieXAvailable()) {
+        } else if (!shouldForceCpu && currentIsCpu && DeviceUtils.isSnapdragonDevice() && DeviceUtils.isGenieXAvailable()) {
             Log.i("LlmService", "Swapping back to GPU engine for active chat...")
             engine.unload()
             engine = getEngine(forceCpu = false)
@@ -121,7 +128,42 @@ class LlmService(private val context: Context) {
         // Note: Already retrieved at the start of chat() and stored in relevantMemory
         
         val prompt = buildString {
-            // 1. CHAT HISTORY (Moving up to stabilize core prompt cache)
+            // 1. SYSTEM CORE
+            append("<|im_start|>system\n")
+            
+            // Strictly defined roles to prevent identity confusion
+            append("CORE IDENTITY:\n")
+            append("- Your name is Aria.\n")
+            append("- You are a local AI running on the user's mobile phone.\n")
+            append("- The person you are talking to is named $userName.\n\n")
+
+            // User-defined personality
+            append("PERSONALITY INSTRUCTIONS:\n")
+            append(systemPrompt.trim())
+            append("\n\n")
+
+            // Context Isolation (Memory/Tools) - Kept separate from rules
+            if (relevantMemory.isNotEmpty()) {
+                append("### PERSISTENT MEMORY (Facts about $userName):\n")
+                append(relevantMemory.trim())
+                append("\n\n")
+            }
+            
+            if (dynamicTools.isNotEmpty()) {
+                append("### AVAILABLE TOOLS:\n")
+                append(dynamicTools.trim())
+                append("\n\n")
+            }
+
+            // FINAL ENFORCEMENT
+            append("STRICT BEHAVIOR RULES:\n")
+            append("- NEVER refer to yourself as Algo1127. That is the user's name.\n")
+            append("- Stay in character as Aria: cynical, easily annoyed, and brief.\n")
+            append("- Analyze everything (including images) through your sarcastic persona.\n")
+            
+            append("<|im_end|>\n")
+            
+            // 2. CHAT HISTORY
             val historySubset = history.takeLast(10)
             historySubset.forEachIndexed { index, msg ->
                 val role = if (msg.role == "user") "user" else "assistant"
@@ -129,45 +171,34 @@ class LlmService(private val context: Context) {
                     .replace(Regex("<think>.*?</think>", RegexOption.DOT_MATCHES_ALL), "")
                     .trim()
                 
-                // If official nudge is enabled, append keyword to the LAST user message
                 if (useOfficialNudge && index == historySubset.size - 1 && msg.role == "user") {
                     cleanedContent += if (forceReasoning) " /think" else " /no_think"
                 }
 
                 append("<|im_start|>$role\n")
+                
+                // MULTIMODAL INJECTION:
+                if (index == historySubset.size - 1 && imagePath != null) {
+                    append("<|vision_start|><|image_pad|><|vision_end|>\n")
+                } else if (msg.hasImage) {
+                    append("[User provided an image]\n")
+                }
+
                 append(cleanedContent)
                 append("\n<|im_end|>\n")
             }
-
-            // 2. SYSTEM CORE
-            append("<|im_start|>system\n")
-            append(systemPrompt.trim())
-
-            append("\n\n<user_info>\nYou are talking to $userName. Address them by this name. Never call them 'human', 'user', or 'mortal'.\n</user_info>")
-            
-            // XML Tagging for strict context isolation
-            if (relevantMemory.isNotEmpty()) {
-                append("\n<memory_recall>\n")
-                append(relevantMemory.trim())
-                append("\n</memory_recall>")
-            }
-            if (dynamicTools.isNotEmpty()) {
-                append("\n<available_tools>\n")
-                append(dynamicTools.trim())
-                append("\n</available_tools>")
-            }
-            
-            append("\n<|im_end|>\n")
             
             // 3. GENERATION START
             append("<|im_start|>assistant\n")
+            
             if (forceReasoning) {
-                // Let the model decide, or force it if it's a reasoning model
                 append("<think>")
             } else if (lastProfile?.skipThinking != true && !useOfficialNudge) {
-                // Only pre-fill "no-think" if the model actually HAS a thinking mode
-                val nudge = if (nudgeType == NudgeType.NO_THINK) "/no_think" else "Done."
-                append("<think>\n$nudge</think>\n")
+                val isOmni = lastProfile?.id?.contains("omni") == true
+                if (!isOmni) {
+                    val nudge = if (nudgeType == NudgeType.NO_THINK) "/no_think" else "Done."
+                    append("<think>\n$nudge</think>\n")
+                }
             }
         }
         
@@ -282,7 +313,9 @@ class LlmService(private val context: Context) {
             engine.predict(
                 prompt = prompt,
                 stopWords = stopWords,
-                useCache = useCache
+                useCache = useCache,
+                imagePath = imagePath,
+                maxImageDim = maxImageDim
             )
             
             val initialResult = finishedDeferred.await()

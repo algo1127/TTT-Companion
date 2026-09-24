@@ -15,30 +15,61 @@ object ModelConfig {
         val filename: String,
         val subDir: String,
         val isReasoning: Boolean,
-        val isRecommended: Boolean = true,
-        val isSpecialist: Boolean = false
+        val isRecommended: Boolean = false,
+        val isSpecialist: Boolean = false,
+        val isMultimodal: Boolean = false,
+        val mmprojUrl: String? = null,
+        val mmprojFilename: String? = null
     )
 
     val LLM_VARIANTS = listOf(
+        ModelVariant(
+            id = "qwen2.5-7b-instruct",
+            displayName = "Qwen 2.5 7B Instruct",
+            description = "The 7B heavy-hitter. Exceptional reasoning and knowledge, but very heavy on RAM.",
+            sizeLabel = "~4.7 GB",
+            url = "https://huggingface.co/unsloth/Qwen2.5-7B-Instruct-GGUF/resolve/main/Q4_K_M.gguf",
+            filename = "qwen2.5-7b-instruct-q4_k_m.gguf",
+            subDir = "models/qwen2.5-7b-instruct",
+            isReasoning = false,
+            isRecommended = false
+        ),
+        ModelVariant(
+            id = "qwen2.5-omni-3b",
+            displayName = "Qwen 2.5 Omni 3B",
+            description = "State-of-the-art multimodal model. Optimized for real-time speech and vision. (Recommended Context: 8192)",
+            sizeLabel = "~1.9 GB",
+            url = "https://huggingface.co/unsloth/Qwen2.5-Omni-3B-GGUF/resolve/main/Q4_K_M.gguf",
+            filename = "qwen2.5-omni-3b-q4_k_m.gguf",
+            subDir = "models/qwen2.5-omni-3b",
+            isReasoning = false,
+            isRecommended = true,
+            isMultimodal = true,
+            mmprojUrl = "https://huggingface.co/unsloth/Qwen2.5-Omni-3B-GGUF/resolve/main/mmproj-F16.gguf",
+            mmprojFilename = "mmproj-omni-f16.gguf"
+        ),
         ModelVariant(
             id = "qwen3-vl-4b-instruct",
             displayName = "Qwen 3 VL 4B",
             description = "Multimodal-ready and highly efficient instruction-tuned model.",
             sizeLabel = "~2.6 GB",
-            url = "https://huggingface.co/unsloth/Qwen3-VL-4B-Instruct-GGUF/resolve/main/Qwen3-VL-4B-Instruct-Q4_0.gguf",
+            url = "https://huggingface.co/unsloth/Qwen3-VL-4B-Instruct-GGUF/resolve/main/Q4_0.gguf",
             filename = "qwen3-vl-4b-instruct-q4_0.gguf",
             subDir = "models/qwen3-vl-4b-instruct",
-            isReasoning = false
+            isReasoning = false,
+            isRecommended = false,
+            isMultimodal = true
         ),
         ModelVariant(
             id = "qwen3-4b-instruct",
             displayName = "Qwen 3 4B Instruct",
             description = "High performance, stable, and efficient. No internal monologue.",
             sizeLabel = "~2.7 GB",
-            url = "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+            url = "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Q4_K_M.gguf",
             filename = "qwen3-4b-instruct-q4_k_m.gguf",
             subDir = "models/qwen3-4b-instruct",
-            isReasoning = false
+            isReasoning = false,
+            isRecommended = false
         ),
         ModelVariant(
             id = "qwen2.5-3b-instruct",
@@ -48,14 +79,15 @@ object ModelConfig {
             url = "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf",
             filename = "qwen2.5-3b-instruct-q4_k_m.gguf",
             subDir = "models/qwen2.5-3b-instruct",
-            isReasoning = false
+            isReasoning = false,
+            isRecommended = true
         ),
         ModelVariant(
             id = "qwen3.5-4b-reasoning",
             displayName = "Qwen 3.5 4B (Reasoning)",
             description = "[EXPERIMENTAL] Uses a thinking chain. Highly prone to glitches and slow inference.",
             sizeLabel = "~2.7 GB",
-            url = "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf",
+            url = "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Q4_K_M.gguf",
             filename = "qwen3-4b-reasoning-q4_k_m.gguf",
             subDir = "models/qwen3.5-4b-reasoning",
             isReasoning = true,

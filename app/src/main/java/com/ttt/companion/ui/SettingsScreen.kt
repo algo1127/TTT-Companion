@@ -42,6 +42,7 @@ fun SettingsScreen(viewModel: MainViewModel) {
     val longTermMemoryEnabled by viewModel.longTermMemoryEnabled.collectAsStateWithLifecycle()
     val parallelTtsEnabled by viewModel.parallelTtsEnabled.collectAsStateWithLifecycle()
     val useSystemPromptCache by viewModel.useSystemPromptCache.collectAsStateWithLifecycle()
+    val visionResolution by viewModel.visionResolution.collectAsStateWithLifecycle()
 
     SettingsScreenContent(
         contextSize = contextSize,
@@ -58,6 +59,7 @@ fun SettingsScreen(viewModel: MainViewModel) {
         longTermMemoryEnabled = longTermMemoryEnabled,
         parallelTtsEnabled = parallelTtsEnabled,
         useSystemPromptCache = useSystemPromptCache,
+        visionResolution = visionResolution,
         onBackClick = { viewModel.setScreen(MainViewModel.Screen.VRM) },
         onRestartLlmClick = { viewModel.restartLlm() },
         onRestartVrmClick = { viewModel.restartVrmEngine() },
@@ -75,7 +77,8 @@ fun SettingsScreen(viewModel: MainViewModel) {
         onToggleCognitiveMemory = { viewModel.setCognitiveMemoryEnabled(it) },
         onToggleLongTermMemory = { viewModel.setLongTermMemoryEnabled(it) },
         onToggleParallelTts = { viewModel.setParallelTtsEnabled(it) },
-        onToggleSystemPromptCache = { viewModel.setUseSystemPromptCache(it) }
+        onToggleSystemPromptCache = { viewModel.setUseSystemPromptCache(it) },
+        onVisionResolutionChange = { viewModel.setVisionResolution(it.toInt()) }
     )
 }
 
@@ -96,6 +99,7 @@ fun SettingsScreenContent(
     longTermMemoryEnabled: Boolean,
     parallelTtsEnabled: Boolean,
     useSystemPromptCache: Boolean,
+    visionResolution: Int,
     onBackClick: () -> Unit,
     onRestartLlmClick: () -> Unit,
     onRestartVrmClick: () -> Unit,
@@ -113,7 +117,8 @@ fun SettingsScreenContent(
     onToggleCognitiveMemory: (Boolean) -> Unit,
     onToggleLongTermMemory: (Boolean) -> Unit,
     onToggleParallelTts: (Boolean) -> Unit,
-    onToggleSystemPromptCache: (Boolean) -> Unit
+    onToggleSystemPromptCache: (Boolean) -> Unit,
+    onVisionResolutionChange: (Float) -> Unit
 ) {
     var localContextSize by remember(contextSize) { mutableIntStateOf(contextSize) }
 
@@ -323,6 +328,31 @@ fun SettingsScreenContent(
                     onCheckedChange = onToggleSystemPromptCache
                 )
 
+                Spacer(Modifier.height(16.dp))
+
+                // Vision Resolution Slider
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Vision Resolution", color = Color.White, fontSize = 14.sp)
+                    Text("${visionResolution}p", color = Color(0xFF6699FF), fontWeight = FontWeight.Bold)
+                }
+                Slider(
+                    value = visionResolution.toFloat(),
+                    onValueChange = onVisionResolutionChange,
+                    valueRange = 144f..512f,
+                    steps = 3, // 144, 256, 384, 512 roughly
+                    colors = SliderDefaults.colors(thumbColor = Color(0xFF6699FF))
+                )
+                Text(
+                    "Lower resolution is MUCH faster and uses less memory. Higher is better for small text.",
+                    color = Color.Gray,
+                    fontSize = 11.sp,
+                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                )
+
                 val variant = ModelConfig.getLlmVariant(selectedLlmId)
                 
                 if (variant.isReasoning) {
@@ -423,12 +453,19 @@ fun LlmModelCard(variant: ModelConfig.ModelVariant, isSelected: Boolean, onClick
         Column(modifier = Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(variant.displayName, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                if (!variant.isRecommended) {
+                
+                if (variant.isRecommended) {
+                    Spacer(Modifier.width(8.dp))
+                    Surface(color = Color.Green.copy(alpha = 0.2f), shape = RoundedCornerShape(4.dp)) {
+                        Text("RECOMMENDED", color = Color.Green, fontSize = 8.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
+                    }
+                } else if (!variant.isSpecialist && (variant.sizeLabel.contains("7B") || variant.isReasoning)) {
                     Spacer(Modifier.width(8.dp))
                     Surface(color = Color.Red.copy(alpha = 0.2f), shape = RoundedCornerShape(4.dp)) {
                         Text("NOT RECOMMENDED", color = Color.Red, fontSize = 8.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
                     }
                 }
+
                 if (variant.isReasoning) {
                     Spacer(Modifier.width(8.dp))
                     Surface(color = Color(0xFF6699FF).copy(alpha = 0.2f), shape = RoundedCornerShape(4.dp)) {

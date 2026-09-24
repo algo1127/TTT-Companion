@@ -127,6 +127,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     )
     val selectedLlmId = _selectedLlmId.asStateFlow()
 
+    private val _isMultimodal = MutableStateFlow(
+        com.ttt.companion.llm.ModelConfig.getLlmVariant(_selectedLlmId.value).isMultimodal
+    )
+    val isMultimodal = _isMultimodal.asStateFlow()
+
     private val _selectedWhisperId = MutableStateFlow(
         app.getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
             .getString("whisper_model_id", AudioConfig.DEFAULT_WHISPER.id) ?: AudioConfig.DEFAULT_WHISPER.id
@@ -193,6 +198,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     )
     val useSystemPromptCache = _useSystemPromptCache.asStateFlow()
 
+    private val _visionResolution = MutableStateFlow(
+        app.getSharedPreferences("experimental_prefs", Application.MODE_PRIVATE)
+            .getInt("vision_resolution", 512)
+    )
+    val visionResolution = _visionResolution.asStateFlow()
+
     private val _nudgeType = MutableStateFlow(
         LlmService.NudgeType.valueOf(
             app.getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
@@ -240,6 +251,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _messages  = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages = _messages.asStateFlow()
+
+    private val _selectedImagePath = MutableStateFlow<String?>(null)
+    val selectedImagePath = _selectedImagePath.asStateFlow()
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading = _isLoading.asStateFlow()
@@ -453,8 +467,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // --- Chat ---------------------------------------------------------------
 
     fun sendMessage(userText: String) {
-        if (userText.isBlank() || _isLoading.value || _isSpeaking.value) return
-        val userMsg = ChatMessage(role = "user", content = userText.trim())
+        if (userText.isBlank() && _selectedImagePath.value == null || _isLoading.value || _isSpeaking.value) return
+        
+        val currentImage = _selectedImagePath.value
+        _selectedImagePath.value = null // Clear for next message
+
+        val userMsg = ChatMessage(
+            role = "user", 
+            content = userText.trim(),
+            hasImage = currentImage != null
+        )
         val updatedHistory = _messages.value + userMsg
         _messages.value = updatedHistory
         _isLoading.value = true
@@ -471,6 +493,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     systemPrompt = fullSystemPrompt, 
                     characterId = character.id,
                     userName = _userName.value,
+                    forceCpu = false,
                     forceReasoning = _reasoningEnabled.value,
                     reasoningThreshold = _reasoningThreshold.value,
                     nudgeType = _nudgeType.value,
@@ -486,7 +509,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                                 )
                             }
                         }
-                    } else null
+                    } else null,
+                    imagePath = currentImage,
+                    maxImageDim = _visionResolution.value
                 )
                 val rawResponse = chatResult.text
                 val parseResult = com.ttt.companion.tools.ToolCallParser.parse(rawResponse)
@@ -819,6 +844,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (_selectedLlmId.value == id) return
         
         _selectedLlmId.value = id
+        _isMultimodal.value = com.ttt.companion.llm.ModelConfig.getLlmVariant(id).isMultimodal
+
         getApplication<Application>().getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
             .edit()
             .putString("llm_model_id", id)
@@ -899,6 +926,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .apply()
     }
 
+    fun setVisionResolution(value: Int) {
+        _visionResolution.value = value
+        getApplication<Application>().getSharedPreferences("experimental_prefs", Application.MODE_PRIVATE)
+            .edit()
+            .putInt("vision_resolution", value)
+            .apply()
+    }
+
     fun setNudgeType(type: LlmService.NudgeType) {
         _nudgeType.value = type
         getApplication<Application>().getSharedPreferences("llm_prefs", Application.MODE_PRIVATE)
@@ -936,6 +971,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .edit()
             .putBoolean("keep_old_models", enabled)
             .apply()
+    }
+
+    fun setSelectedImage(path: String?) {
+        _selectedImagePath.value = path
     }
 
     // --- Camera Management --------------------------------------------------
